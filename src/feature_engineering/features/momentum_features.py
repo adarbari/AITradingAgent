@@ -22,7 +22,11 @@ def calculate_rsi(data: pd.DataFrame, window: int = 14) -> pd.Series:
     Returns:
         pd.Series: RSI values (normalized to 0-1 range)
     """
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
+        
     delta = np.diff(close, prepend=close[0])
     
     # Separate gains and losses
@@ -108,15 +112,25 @@ def calculate_macd(data: pd.DataFrame,
     Returns:
         pd.Series: MACD line values normalized by price
     """
-    # Calculate EMAs directly using pandas to preserve Series attributes
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
+    
+    # Calculate EMAs directly using pandas
     ema_fast = close.ewm(span=fast_period, adjust=False).mean()
     ema_slow = close.ewm(span=slow_period, adjust=False).mean()
     
     # Calculate MACD line and normalize by price
     macd_line = (ema_fast - ema_slow) / close
     
-    return macd_line  # Return directly to preserve Series name
+    # Ensure we return a Series, not a DataFrame
+    if isinstance(macd_line, pd.DataFrame):
+        macd_line = pd.Series(macd_line.values.flatten(), index=macd_line.index)
+    
+    return macd_line
 
 
 @FeatureRegistry.register(name="macd_signal", category="momentum")
@@ -136,7 +150,10 @@ def calculate_macd_signal(data: pd.DataFrame,
     Returns:
         pd.Series: MACD signal line values normalized by price
     """
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
     
     # Calculate fast and slow EMAs
     fast_alpha = 2 / (fast_period + 1)
@@ -190,7 +207,10 @@ def calculate_macd_histogram(data: pd.DataFrame,
     Returns:
         pd.Series: MACD histogram values normalized by price
     """
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
     
     # Calculate fast and slow EMAs
     fast_alpha = 2 / (fast_period + 1)
@@ -223,10 +243,10 @@ def calculate_macd_histogram(data: pd.DataFrame,
     histogram = macd_line - signal_line
     
     # Normalize by price
-    histogram_normalized = histogram / np.maximum(close, 1e-8)
+    hist_normalized = histogram / np.maximum(close, 1e-8)
     
     # Replace NaNs and Infs with zeros
-    result = np.nan_to_num(histogram_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(hist_normalized, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
 
@@ -241,7 +261,11 @@ def calculate_momentum_5(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: Momentum values
     """
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
+        
     period = 5
     
     # Calculate momentum (current price / price n periods ago - 1)
@@ -264,9 +288,17 @@ def calculate_stochastic_k(data: pd.DataFrame,
     Returns:
         pd.Series: %K values normalized to 0-1 range
     """
+    # Ensure we're working with 1D arrays
     high = data['High'].values
     low = data['Low'].values
     close = data['Close'].values
+    
+    if len(high.shape) > 1:
+        high = high.flatten()
+    if len(low.shape) > 1:
+        low = low.flatten()
+    if len(close.shape) > 1:
+        close = close.flatten()
     
     # Calculate rolling highest high and lowest low
     highest_high = np.zeros_like(close)
@@ -305,7 +337,7 @@ def calculate_stochastic_d(data: pd.DataFrame,
     Returns:
         pd.Series: %D values normalized to 0-1 range
     """
-    # Calculate %K
+    # Calculate %K (already handles flattening internally)
     k_values = calculate_stochastic_k(data, window=k_window).values
     
     # Calculate %D (moving average of %K)
@@ -320,5 +352,5 @@ def calculate_stochastic_d(data: pd.DataFrame,
             d_values[i] = np.mean(k_values[i-d_window+1:i+1])
     
     # Replace NaNs with 0.5 (neutral value)
-    result = np.nan_to_num(d_values, nan=0.5, posinf=1.0, neginf=0.0)
+    result = np.nan_to_num(d_values, nan=0.5)
     return pd.Series(result, index=data.index) 

@@ -22,8 +22,11 @@ def calculate_volatility(data: pd.DataFrame, window: int = 5) -> pd.Series:
     Returns:
         pd.Series: Volatility values
     """
-    # Exactly match test calculation expectations
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
+        
     # Calculate returns as in test: diff with prepend of first value
     returns = np.diff(close, prepend=close[0]) / np.maximum(close, 1e-8)
     # Rolling std of returns
@@ -45,9 +48,17 @@ def calculate_atr(data: pd.DataFrame, window: int = 14) -> pd.Series:
     Returns:
         pd.Series: ATR values
     """
+    # Ensure we're working with 1D arrays
     high = data['High'].values
     low = data['Low'].values
     close = data['Close'].values
+    
+    if len(high.shape) > 1:
+        high = high.flatten()
+    if len(low.shape) > 1:
+        low = low.flatten()
+    if len(close.shape) > 1:
+        close = close.flatten()
     
     # Calculate True Range
     prev_close = np.roll(close, 1)
@@ -78,6 +89,22 @@ def calculate_atr(data: pd.DataFrame, window: int = 14) -> pd.Series:
     return pd.Series(result, index=data.index)
 
 
+# Register atr_14 as an alias for atr with default window=14
+@FeatureRegistry.register(name="atr_14", category="volatility")
+def calculate_atr_14(data: pd.DataFrame) -> pd.Series:
+    """
+    Calculate Average True Range (ATR) with a 14-day window.
+    This is an alias for the atr feature with default window=14.
+    
+    Args:
+        data (pd.DataFrame): OHLCV data
+        
+    Returns:
+        pd.Series: ATR values
+    """
+    return calculate_atr(data, window=14)
+
+
 @FeatureRegistry.register(name="bollinger_bandwidth", category="volatility")
 def calculate_bollinger_bandwidth(data: pd.DataFrame, window: int = 20, std_dev: float = 2.0) -> pd.Series:
     """
@@ -91,7 +118,10 @@ def calculate_bollinger_bandwidth(data: pd.DataFrame, window: int = 20, std_dev:
     Returns:
         pd.Series: Bollinger Bandwidth values
     """
+    # Ensure we're working with a 1D array
     close = data['Close'].values
+    if len(close.shape) > 1:
+        close = close.flatten()
     
     # Calculate SMA
     sma = np.zeros_like(close)

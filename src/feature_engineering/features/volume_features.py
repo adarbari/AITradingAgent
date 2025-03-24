@@ -48,13 +48,26 @@ def calculate_volume_sma_ratio(data: pd.DataFrame, window: int = 20) -> pd.Serie
     Returns:
         pd.Series: Volume to SMA ratio values
     """
-    # Calculate as in the test: volume / SMA, capped at 5.0
-    volume = data['Volume']
+    # Ensure we're working with 1D arrays
+    volumes = data['Volume'].values
+    if len(volumes.shape) > 1:
+        volumes = volumes.flatten()
+    
+    # Convert to Series for rolling operations
+    volume = pd.Series(volumes, index=data.index)
+    
+    # Calculate SMA
     volume_sma = volume.rolling(window=window).mean().fillna(volume)
+    
+    # Calculate ratio
     ratio = volume / volume_sma
     
     # Cap the ratio at 5.0 to match test expectations
     capped_ratio = np.minimum(ratio, 5.0)
+    
+    # Ensure we return a Series, not a DataFrame
+    if isinstance(capped_ratio, pd.DataFrame):
+        capped_ratio = pd.Series(capped_ratio.values.flatten(), index=capped_ratio.index)
     
     # Return Series with the same name as expected in the test
     return capped_ratio

@@ -151,14 +151,13 @@ class FeatureRegistry:
         return cls._features[name](data, **kwargs)
     
     @classmethod
-    def compute_features(cls, feature_list: List[str], data: pd.DataFrame, **kwargs) -> pd.DataFrame:
+    def compute_features(cls, feature_list: List[str], data: pd.DataFrame) -> pd.DataFrame:
         """
         Compute multiple features.
         
         Args:
             feature_list (List[str]): List of feature names
             data (pd.DataFrame): Data to compute features from
-            **kwargs: Additional parameters to pass to the feature functions
             
         Returns:
             pd.DataFrame: DataFrame containing computed features
@@ -167,7 +166,7 @@ class FeatureRegistry:
         
         for feature_name in feature_list:
             try:
-                feature_values = cls.compute_feature(feature_name, data, **kwargs)
+                feature_values = cls.compute_feature(feature_name, data)
                 features[feature_name] = feature_values
             except Exception as e:
                 print(f"Error computing feature '{feature_name}': {e}")

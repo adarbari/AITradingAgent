@@ -75,8 +75,12 @@ def calculate_sma_20(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: SMA-20 to price ratio
     """
-    # Calculate directly using pandas to preserve Series attributes
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
     sma = close.rolling(window=20).mean().bfill().fillna(close)
     
     # Calculate ratio and handle potential division by zero
@@ -84,6 +88,10 @@ def calculate_sma_20(data: pd.DataFrame) -> pd.Series:
     
     # Replace NaNs and infinities with 1.0
     ratio = ratio.fillna(1.0).replace([np.inf, -np.inf], 1.0)
+    
+    # Ensure we return a Series, not a DataFrame
+    if isinstance(ratio, pd.DataFrame):
+        ratio = pd.Series(ratio.values.flatten(), index=ratio.index)
     
     return ratio
 
