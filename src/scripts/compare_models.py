@@ -4,106 +4,93 @@ Script to compare different model configurations and find the best one for a giv
 """
 import os
 import sys
-import argparse
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
+import argparse
 from datetime import datetime, timedelta
+from copy import deepcopy
 
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.scripts.train_and_backtest import backtest_model
 from src.train.trainer import TrainingManager
-from src.data import DataFetcherFactory
+from src.backtest import Backtester
+from src.agent.trading_env import TradingEnvironment
+from src.data.yahoo_data_fetcher import YahooDataFetcher
 
 def evaluate_model_configurations(symbol, configurations, test_period, results_dir="results/comparison"):
     """
-    Evaluate multiple model configurations and compare their performance.
+    Train and evaluate multiple model configurations.
     
     Args:
-        symbol (str): Stock symbol to train on
+        symbol (str): Stock symbol
         configurations (list): List of configuration dictionaries
-        test_period (tuple): (test_start, test_end) dates
+        test_period (dict): Dict with 'start' and 'end' keys for test period
         results_dir (str): Directory to save results
         
     Returns:
-        pd.DataFrame: Performance summary of all models
+        pd.DataFrame: Results dataframe
     """
+    # Create results directory if it doesn't exist
     os.makedirs(results_dir, exist_ok=True)
     
-    # Create a dataframe to store results
-    results_summary = pd.DataFrame(columns=[
-        'Configuration', 'Training Period', 'Total Timesteps', 
-        'Total Return (%)', 'Sharpe Ratio', 'Max Drawdown (%)'
-    ])
+    results = []
     
-    # Create training manager
-    training_manager = TrainingManager(models_dir=results_dir)
-    
-    # Evaluate each configuration
     for i, config in enumerate(configurations):
-        print(f"\n=== Testing Configuration {i+1}/{len(configurations)} ===")
-        print(f"Training period: {config['train_start']} to {config['train_end']}")
-        print(f"Timesteps: {config['timesteps']}")
+        print(f"\n========== Configuration {i+1}/{len(configurations)} ==========")
+        print(json.dumps(config, indent=2))
         
-        # Create synthetic parameters if needed
-        synthetic_params = config.get('synthetic_params', None)
+        # Define a unique name for this configuration
+        config_name = f"Config_{i+1}"
         
-        # Train (or get cached) model
-        model, model_path = training_manager.get_model(
+        # Train model with this configuration
+        model_path = f"{results_dir}/{symbol}_{config_name}.zip"
+        
+        # Use the training manager
+        trainer = TrainingManager()
+        trainer.train(
             symbol=symbol,
-            train_start=config['train_start'],
-            train_end=config['train_end'],
+            start_date=config['train_start'],
+            end_date=config['train_end'],
+            model_output_path=model_path,
             feature_count=config.get('feature_count', 21),
-            data_source=config.get('data_source', 'yfinance'),
-            timesteps=config['timesteps'],
-            force_train=config.get('force_train', False),
-            synthetic_params=synthetic_params,
-            model_params=config.get('model_params', None)
+            data_source=config.get('data_source', 'yahoo'),
+            timesteps=config.get('timesteps', 100000),
+            force_train=True
         )
-        
-        if model is None:
-            print(f"Failed to train model for configuration {i+1}")
-            continue
         
         # Backtest the model
-        test_start, test_end = test_period
-        results = backtest_model(
+        backtest_results = backtest_model(
             model_path=model_path,
             symbol=symbol,
-            test_start=test_start,
-            test_end=test_end,
-            data_source=config.get('data_source', 'yfinance'),
-            feature_count=config.get('feature_count', 21),
-            results_dir=os.path.join(results_dir, f"{symbol}_{i+1}"),
-            synthetic_params=synthetic_params,
-            transaction_fee_percent=config.get('fee', 0.001)
+            test_start=test_period['start'],
+            test_end=test_period['end'],
+            data_source=config.get('data_source', 'yahoo')
         )
         
-        if results is None:
-            print(f"Failed to backtest model for configuration {i+1}")
-            continue
+        # Store results
+        results.append({
+            'Configuration': config_name,
+            'Train Period': f"{config['train_start']} to {config['train_end']}",
+            'Timesteps': config['timesteps'],
+            'Total Return (%)': backtest_results['total_return'],
+            'Sharpe Ratio': backtest_results['sharpe_ratio'],
+            'Max Drawdown (%)': backtest_results['max_drawdown'],
+            'Win Rate (%)': backtest_results['win_rate'],
+            'N Trades': backtest_results['n_trades']
+        })
         
-        # Add to summary
-        results_summary.loc[i] = [
-            f"Config {i+1}",
-            f"{config['train_start']} to {config['train_end']}",
-            config['timesteps'],
-            results['total_return'],
-            results['sharpe_ratio'],
-            results['max_drawdown']
-        ]
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results)
     
-    # Save summary to CSV
-    summary_file = os.path.join(results_dir, f"{symbol}_model_comparison.csv")
-    results_summary.to_csv(summary_file, index=False)
-    print(f"\nComparison results saved to {summary_file}")
+    # Save results to CSV
+    csv_path = os.path.join(results_dir, f"{symbol}_comparison_results.csv")
+    results_df.to_csv(csv_path, index=False)
     
-    # Plot comparison
-    plot_path = plot_model_comparison(results_summary, symbol, results_dir)
-    print(f"Comparison plot saved to {plot_path}")
-    
-    return results_summary
+    return results_df
 
 
 def plot_model_comparison(results_df, symbol, results_dir):
@@ -171,21 +158,21 @@ def define_default_configurations():
             'train_start': f"{current_year-3}-01-01",
             'train_end': f"{current_year-1}-12-31",
             'timesteps': 100000,
-            'data_source': 'yfinance',
+            'data_source': 'yahoo',
             'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01", 
             'train_end': f"{current_year-1}-12-31",
             'timesteps': 100000,
-            'data_source': 'yfinance',
+            'data_source': 'yahoo',
             'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-06-30",
             'timesteps': 100000,
-            'data_source': 'yfinance',
+            'data_source': 'yahoo',
             'feature_count': 21
         },
         
@@ -194,14 +181,14 @@ def define_default_configurations():
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-12-31",
             'timesteps': 50000,
-            'data_source': 'yfinance',
+            'data_source': 'yahoo',
             'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-12-31",
             'timesteps': 200000,
-            'data_source': 'yfinance',
+            'data_source': 'yahoo',
             'feature_count': 21
         },
     ]
@@ -230,13 +217,13 @@ def main():
     args = parser.parse_args()
     
     # Create test period tuple
-    test_period = (args.test_start, args.test_end)
+    test_period = {'start': args.test_start, 'end': args.test_end}
     
     # Get default configurations
     configurations = define_default_configurations()
     
     print(f"\nComparing model configurations for {args.symbol}")
-    print(f"Test period: {test_period[0]} to {test_period[1]}")
+    print(f"Test period: {test_period['start']} to {test_period['end']}")
     print(f"Number of configurations to evaluate: {len(configurations)}")
     
     # Evaluate configurations

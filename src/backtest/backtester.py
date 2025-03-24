@@ -13,6 +13,9 @@ from stable_baselines3 import PPO
 import pandas_datareader.data as web
 import gymnasium as gym
 import yfinance as yf
+import time
+import matplotlib.dates as mdates
+from src.data.yahoo_data_fetcher import YahooDataFetcher
 
 from .base_backtester import BaseBacktester
 from .benchmarks import BenchmarkFactory
@@ -33,14 +36,17 @@ class Backtester(BaseBacktester):
     Backtester for evaluating trading strategies.
     """
     
-    def __init__(self, results_dir='results'):
+    def __init__(self, results_dir='results', config=None):
         """
         Initialize the backtester.
         
         Args:
             results_dir (str): Directory to store backtest results
+            config (dict): Configuration parameters
         """
         super().__init__(results_dir)
+        self.config = config or {}
+        self.data_fetcher = YahooDataFetcher()
         
         # Define default benchmarks
         self.benchmarks = [
@@ -106,7 +112,7 @@ class Backtester(BaseBacktester):
         
         return benchmark_results
 
-    def backtest_model(self, model_path, symbol, test_start, test_end, data_source="yfinance", env_class=None):
+    def backtest_model(self, model_path, symbol, test_start, test_end, data_source="yahoo", env_class=None):
         """
         Backtest a trained model on historical data.
         
@@ -115,7 +121,7 @@ class Backtester(BaseBacktester):
             symbol (str): Stock symbol to backtest on
             test_start (str): Start date for testing (YYYY-MM-DD)
             test_end (str): End date for testing (YYYY-MM-DD)
-            data_source (str): Source of data ("yfinance" or "synthetic")
+            data_source (str): Source of data ("yahoo" or "synthetic")
             env_class (class): Environment class to use (must be a gym.Env subclass)
             
         Returns:
@@ -124,9 +130,8 @@ class Backtester(BaseBacktester):
         print(f"Backtesting model {model_path} on {symbol} from {test_start} to {test_end}")
         
         # Get test data
-        if data_source == "yfinance":
-            ticker = yf.Ticker(symbol)
-            test_data = ticker.history(start=test_start, end=test_end)
+        if data_source == "yahoo":
+            test_data = self.data_fetcher.fetch_ticker_data(symbol, test_start, test_end)
         else:
             # Generate synthetic data for testing
             days = pd.date_range(start=test_start, end=test_end, freq='D')

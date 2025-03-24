@@ -3,7 +3,6 @@ Utilities for feature preparation and data handling.
 """
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import warnings
 import sys
 import os
@@ -17,6 +16,7 @@ if parent_dir not in sys.path:
 from src.feature_engineering import process_features, FeatureRegistry
 from src.feature_engineering.pipeline import FeaturePipeline
 from src.feature_engineering.cache import FeatureCache
+from src.data.yahoo_data_fetcher import YahooDataFetcher
 
 # Import all feature categories to ensure they are registered
 from src.feature_engineering.features import (
@@ -112,23 +112,17 @@ def get_data(symbol, start_date, end_date, data_source='yahoo', synthetic_params
     """
     if data_source == 'yahoo':
         try:
-            # Fetch data from Yahoo Finance
-            data = yf.download(
-                symbol, 
-                start=start_date, 
-                end=end_date, 
-                progress=False
-            )
-            
-            # Verify we have the required columns
-            required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-            for col in required_columns:
-                if col not in data.columns:
-                    print(f"Error: Required column {col} not found in data")
-                    return None
+            # Fetch data from Yahoo Finance using the data fetcher
+            data_fetcher = YahooDataFetcher()
+            data = data_fetcher.fetch_data_simple(symbol, start_date, end_date)
                 
-            return data
-            
+            if data is None or data.empty:
+                print(f"Error: No data returned for {symbol}")
+                print("Falling back to synthetic data generation")
+                data_source = 'synthetic'  # Fall back to synthetic data
+            else:
+                return data
+                
         except Exception as e:
             print(f"Error fetching data from Yahoo Finance: {e}")
             print("Falling back to synthetic data generation")

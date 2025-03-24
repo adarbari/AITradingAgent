@@ -151,9 +151,9 @@ def main():
                              help="End date for training data (default: 2022-12-31)")
     train_parser.add_argument("--feature-count", type=int, default=21,
                              help="Number of features to use (default: 21)")
-    train_parser.add_argument("--data-source", type=str, default="yfinance",
-                             choices=["yfinance", "synthetic"],
-                             help="Source of data (default: yfinance)")
+    train_parser.add_argument("--data-source", type=str, default="yahoo",
+                             choices=["yahoo", "synthetic"],
+                             help="Source of data (default: yahoo)")
     train_parser.add_argument("--timesteps", type=int, default=100000,
                              help="Training timesteps (default: 100000)")
     train_parser.add_argument("--force", action="store_true",

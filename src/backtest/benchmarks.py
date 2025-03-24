@@ -4,7 +4,7 @@ Benchmark calculations for backtesting performance comparison.
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
-import yfinance as yf
+from src.data.yahoo_data_fetcher import YahooDataFetcher
 
 class Benchmark(ABC):
     """Base class for benchmark calculations."""
@@ -13,6 +13,7 @@ class Benchmark(ABC):
         self.name = name
         self.symbol = symbol
         self.initial_investment = initial_investment
+        self.data_fetcher = YahooDataFetcher()
     
     @abstractmethod
     def calculate_returns(self, start_date, end_date):
@@ -52,9 +53,8 @@ class BuyAndHoldBenchmark(Benchmark):
     
     def calculate_returns(self, start_date, end_date):
         try:
-            # Get stock data
-            stock = yf.Ticker(self.symbol)
-            data = stock.history(start=start_date, end=end_date)
+            # Get stock data using the data fetcher
+            data = self.data_fetcher.fetch_ticker_data(self.symbol, start_date, end_date)
             
             if data.empty:
                 print(f"No data available for {self.symbol}")
@@ -79,9 +79,8 @@ class MarketIndexBenchmark(Benchmark):
     
     def calculate_returns(self, start_date, end_date):
         try:
-            # Get index data
-            index = yf.Ticker(self.symbol)
-            data = index.history(start=start_date, end=end_date)
+            # Get index data using the data fetcher
+            data = self.data_fetcher.fetch_ticker_data(self.symbol, start_date, end_date)
             
             if data.empty:
                 print(f"No data available for {self.symbol}")

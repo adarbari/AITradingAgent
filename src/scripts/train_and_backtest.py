@@ -11,7 +11,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from datetime import datetime, timedelta
-import yfinance as yf
 from stable_baselines3 import PPO
 
 # Add the project root to the Python path
@@ -23,6 +22,7 @@ from src.backtest import Backtester
 from src.agent.trading_env import TradingEnvironment
 from src.train.trainer import TrainingManager
 from src.utils.feature_utils import prepare_robust_features, prepare_features_from_indicators, get_data
+from src.data.yahoo_data_fetcher import YahooDataFetcher
 
 # Import feature engineering module
 from src.feature_engineering import process_features, FeatureRegistry, FEATURE_CONFIGS
@@ -55,25 +55,25 @@ def train_model(symbol, train_start, train_end, model_path=None,
                 save_model=True, synthetic_params=None, force_retrain=False,
                 feature_set="standard"):
     """
-    Train a trading agent on historical data.
+    Train a reinforcement learning agent on historical stock data.
     
     Args:
-        symbol (str): Symbol to train on
-        train_start (str): Start date for training data
-        train_end (str): End date for training data
-        model_path (str, optional): Path to save model to
+        symbol (str): Stock symbol to train on
+        train_start (str): Start date for training in YYYY-MM-DD format
+        train_end (str): End date for training in YYYY-MM-DD format
+        model_path (str): Path to save the model (or load existing)
         timesteps (int): Number of timesteps to train for
-        feature_count (int): Number of features to use
-        data_source (str): Source of data ("yfinance", "synthetic")
-        trading_env_class (class): Trading environment class
-        verbose (int): Verbosity level
-        save_model (bool): Whether to save the model
+        feature_count (int): Number of features for the agent to use
+        data_source (str): Source of data ("yahoo", "synthetic")
+        trading_env_class (class): Environment class to use
+        verbose (int): Verbosity level (0=silent, 1=progress, 2=debug)
+        save_model (bool): Whether to save the trained model
         synthetic_params (dict): Parameters for synthetic data generation
-        force_retrain (bool): Force retraining even if cached model exists
-        feature_set (str): Feature set configuration to use
-    
+        force_retrain (bool): Force retraining even if model exists
+        feature_set (str): Feature set to use
+        
     Returns:
-        tuple: (trained_model, model_path)
+        str: Path to the saved model
     """
     print(f"Training model for {symbol} from {train_start} to {train_end}")
     
@@ -133,67 +133,60 @@ def train_model(symbol, train_start, train_end, model_path=None,
 def fetch_and_prepare_data(symbol, start_date, end_date, data_source='yahoo', min_data_points=5):
     """
     Fetch and prepare data for training or backtesting.
-    Handles error cases and ensures minimum data requirements.
     
     Args:
-        symbol (str): Stock symbol
-        start_date (str): Start date (YYYY-MM-DD)
-        end_date (str): End date (YYYY-MM-DD)
-        data_source (str): Source for data ('yahoo' or 'synthetic')
-        min_data_points (int): Minimum number of data points required
+        symbol (str): The stock symbol
+        start_date (str): Start date in YYYY-MM-DD format
+        end_date (str): End date in YYYY-MM-DD format
+        data_source (str): Source of data ('yahoo' or 'synthetic')
+        min_data_points (int): Minimum required data points
         
     Returns:
-        pd.DataFrame: Prepared data with technical indicators
+        tuple: (DataFrame with prepared features, prices)
     """
-    # Use the centralized get_data function from feature_utils
+    # Fetch data
     data = get_data(symbol, start_date, end_date, data_source)
     
-    # Ensure we have at least the minimum data points
     if data is None or len(data) < min_data_points:
-        print(f"Warning: Not enough data points ({len(data) if data is not None else 0}). At least {min_data_points} are required.")
-        print("Generating additional synthetic data to supplement...")
-        
-        # Generate more synthetic data by extending the date range
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        extended_end = start_dt + timedelta(days=30)  # Always ensure at least a month of data
-        extended_end_str = extended_end.strftime("%Y-%m-%d")
-            
-        # Get synthetic data with extended range
-        data = get_data(symbol, start_date, extended_end_str, data_source="synthetic")
-        print(f"Using {len(data)} data points for analysis.")
+        raise ValueError(f"Not enough data points for {symbol}. Got {0 if data is None else len(data)}, need at least {min_data_points}.")
     
-    return data
+    # Extract prices and prepare features
+    prices = data['Close'].values
+    features = prepare_robust_features(data, verbose=False)
+    
+    return features, prices
 
 def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo', feature_set="standard"):
     """
-    Backtest a trained model on test data
+    Backtest a trained model on historical data.
     
-    Parameters:
-    -----------
-    model_path: str
-        Path to the trained model
-    symbol: str
-        Stock symbol to backtest
-    test_start: str
-        Start date for test data (YYYY-MM-DD)
-    test_end: str
-        End date for test data (YYYY-MM-DD)
-    data_source: str
-        Source for data fetching ('yahoo' or 'synthetic')
-    feature_set: str
-        Feature set configuration to use
-    
+    Args:
+        model_path (str): Path to the saved model
+        symbol (str): Stock symbol to backtest on
+        test_start (str): Start date for testing (YYYY-MM-DD)
+        test_end (str): End date for testing (YYYY-MM-DD)
+        data_source (str): Source of data ('yahoo' or 'synthetic')
+        feature_set (str): Feature set to use
+        
     Returns:
-    --------
-    dict
-        Dictionary containing backtest results
+        dict: Dictionary containing backtest results
     """
-    from datetime import datetime  # Import datetime for timestamp
+    print(f"Backtesting model {model_path} on {symbol} from {test_start} to {test_end}")
     
-    print(f"Backtesting model from {test_start} to {test_end}")
-    
-    # Fetch and prepare test data
-    test_data = fetch_and_prepare_data(symbol, test_start, test_end, data_source)
+    # Get test data
+    if data_source.lower() == 'yahoo':
+        data_fetcher = YahooDataFetcher()
+        test_data = data_fetcher.fetch_ticker_data(symbol, test_start, test_end)
+    else:
+        # Generate synthetic data for testing (placeholder)
+        days = pd.date_range(start=test_start, end=test_end, freq='D')
+        test_data = pd.DataFrame(index=days)
+        test_data['Close'] = np.linspace(100, 150, len(days))  # Simple linear price trend
+        test_data['Open'] = test_data['Close'] - 1
+        test_data['High'] = test_data['Close'] + 2
+        test_data['Low'] = test_data['Close'] - 2
+        test_data['Volume'] = np.random.randint(1000000, 2000000, size=len(days))
+        print(f"Generated {len(days)} days of synthetic data for {symbol}")
     
     # Generate features using the feature engineering module
     print(f"Using feature engineering module with feature set: {feature_set}")
@@ -319,7 +312,7 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
     }
 
 def main():
-    """Main function to parse arguments and run training/backtesting."""
+    """Main function to run the training and backtesting process."""
     parser = argparse.ArgumentParser(description="Train and backtest trading models")
     
     # General arguments
@@ -377,8 +370,7 @@ def main():
     args = parser.parse_args()
     
     # Normalize data source name for backwards compatibility
-    if args.data_source.lower() == "yfinance":
-        args.data_source = "yahoo"
+    # No normalization needed anymore since we've standardized on 'yahoo'
         
     # Create synthetic parameters dict if using synthetic data
     synthetic_params = None

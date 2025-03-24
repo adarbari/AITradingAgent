@@ -46,6 +46,11 @@ class TestYahooDataFetcher:
         cache_file = os.path.join('tests/test_cache', f"{self.symbol}_{self.start_date.replace('-', '')}_{self.end_date.replace('-', '')}.csv")
         if os.path.exists(cache_file):
             os.remove(cache_file)
+
+        # Clean up ticker cache files
+        ticker_cache_file = os.path.join('tests/test_cache', f"{self.symbol}_ticker_{self.start_date.replace('-', '')}_{self.end_date.replace('-', '')}.csv")
+        if os.path.exists(ticker_cache_file):
+            os.remove(ticker_cache_file)
     
     def test_initialization(self):
         """Test fetcher initialization"""
@@ -207,4 +212,189 @@ class TestYahooDataFetcher:
         assert 'SMA_20' in result.columns
         assert 'EMA_5' in result.columns
         assert 'EMA_20' in result.columns
-        assert 'RSI_14' in result.columns 
+        assert 'RSI_14' in result.columns
+
+    @patch('yfinance.Ticker')
+    @patch('pandas.DataFrame.to_csv')
+    def test_fetch_ticker_data_success(self, mock_to_csv, mock_ticker):
+        """Test successful ticker data fetching"""
+        # Mock yfinance direct approach
+        mock_ticker_instance = MagicMock()
+        ticker_data = self.sample_data.copy().set_index('Date')
+        mock_ticker_instance.history.return_value = ticker_data
+        mock_ticker.return_value = mock_ticker_instance
+        
+        # Call fetch_ticker_data
+        result = self.fetcher.fetch_ticker_data(
+            symbol=self.symbol,
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
+        
+        # Check that yfinance.Ticker was called
+        mock_ticker.assert_called_once_with(self.symbol)
+        mock_ticker_instance.history.assert_called_once()
+        
+        # Check returned data
+        assert isinstance(result, pd.DataFrame)
+        assert result.index.name == 'Date' or 'Date' in result.index.names
+        assert 'Open' in result.columns
+        assert 'Close' in result.columns
+        
+        # Verify the data was cached
+        mock_to_csv.assert_called_once()
+
+    @patch('yfinance.Ticker')
+    @patch('pandas.DataFrame.to_csv')
+    @patch('pandas.read_csv')
+    def test_fetch_ticker_data_caching(self, mock_read_csv, mock_to_csv, mock_ticker):
+        """Test ticker data caching mechanism"""
+        # Setup for yfinance approach
+        mock_ticker_instance = MagicMock()
+        ticker_data = self.sample_data.copy().set_index('Date')
+        mock_ticker_instance.history.return_value = ticker_data
+        mock_ticker.return_value = mock_ticker_instance
+        
+        # Mock os.path.exists to return False initially, then True
+        with patch('os.path.exists') as mock_exists:
+            mock_exists.side_effect = [False, True]  # First call returns False, second call returns True
+            
+            # Mock read_csv for second call
+            cache_data = self.sample_data.copy().set_index('Date')
+            mock_read_csv.return_value = cache_data
+            
+            # First call - should fetch from yfinance
+            result1 = self.fetcher.fetch_ticker_data(
+                symbol=self.symbol,
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            
+            # Check that yfinance was called
+            mock_ticker.assert_called_once()
+            mock_ticker_instance.history.assert_called_once()
+            
+            # Reset mocks to check second call
+            mock_ticker.reset_mock()
+            mock_ticker_instance.history.reset_mock()
+            
+            # Second call - should use cache
+            result2 = self.fetcher.fetch_ticker_data(
+                symbol=self.symbol,
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            
+            # Check that yfinance was not called again
+            mock_ticker.assert_not_called()
+            
+            # Check read_csv was called
+            mock_read_csv.assert_called_once()
+
+    @patch('yfinance.Ticker')
+    @patch('time.sleep')  # Mock sleep to avoid waiting
+    def test_fetch_ticker_data_error_handling(self, mock_sleep, mock_ticker):
+        """Test error handling in fetch_ticker_data"""
+        # Mock yfinance.Ticker to fail
+        mock_ticker_instance = MagicMock()
+        mock_ticker_instance.history.side_effect = Exception("YFinance Error")
+        mock_ticker.return_value = mock_ticker_instance
+        
+        # Mock os.path.exists to return False for all calls
+        with patch('os.path.exists', return_value=False):
+            # Call fetch_ticker_data (should return empty DataFrame after max retries)
+            result = self.fetcher.fetch_ticker_data(
+                symbol=self.symbol,
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            
+            # Check that ticker.history was attempted multiple times
+            assert mock_ticker_instance.history.call_count > 1
+            
+            # Check that sleep was called for retries
+            assert mock_sleep.call_count > 0
+            
+            # Check result is an empty DataFrame 
+            assert isinstance(result, pd.DataFrame)
+            assert result.empty
+
+    @patch('yfinance.download')
+    def test_fetch_data_simple_success(self, mock_download):
+        """Test fetch_data_simple successful call"""
+        # Mock yfinance.download
+        mock_download.return_value = self.sample_data.copy().set_index('Date')
+        
+        # Call fetch_data_simple
+        result = self.fetcher.fetch_data_simple(
+            symbol=self.symbol,
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
+        
+        # Check that yfinance.download was called
+        mock_download.assert_called_once_with(
+            self.symbol,
+            start=self.start_date,
+            end=self.end_date,
+            progress=False
+        )
+        
+        # Check returned data
+        assert isinstance(result, pd.DataFrame)
+        assert not result.empty
+        assert 'Open' in result.columns
+        assert 'Close' in result.columns
+
+    @patch('yfinance.download')
+    def test_fetch_data_simple_error(self, mock_download):
+        """Test fetch_data_simple error handling"""
+        # Mock yfinance.download to fail
+        mock_download.side_effect = Exception("Download Error")
+        
+        # Call fetch_data_simple
+        result = self.fetcher.fetch_data_simple(
+            symbol=self.symbol,
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
+        
+        # Check that yfinance.download was called
+        mock_download.assert_called_once_with(
+            self.symbol,
+            start=self.start_date,
+            end=self.end_date,
+            progress=False
+        )
+        
+        # Check that None is returned on error
+        assert result is None
+
+    @patch('yfinance.download')
+    def test_fetch_data_simple_missing_columns(self, mock_download):
+        """Test fetch_data_simple with missing columns"""
+        # Create data with missing required column
+        incomplete_data = pd.DataFrame({
+            'Date': self.sample_dates,
+            'Open': np.random.uniform(100, 150, len(self.sample_dates)),
+            'High': np.random.uniform(120, 170, len(self.sample_dates)),
+            'Low': np.random.uniform(90, 140, len(self.sample_dates)),
+            # Missing 'Close' column
+            'Volume': np.random.randint(1000000, 10000000, len(self.sample_dates))
+        }).set_index('Date')
+        
+        # Mock yfinance.download
+        mock_download.return_value = incomplete_data
+        
+        # Call fetch_data_simple
+        result = self.fetcher.fetch_data_simple(
+            symbol=self.symbol,
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
+        
+        # Check that yfinance.download was called
+        mock_download.assert_called_once()
+        
+        # Check that None is returned due to missing column
+        assert result is None 

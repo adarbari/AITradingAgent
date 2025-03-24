@@ -81,7 +81,7 @@ class TrainingManager:
         return hashlib.md5(config_str.encode()).hexdigest()
     
     def get_model(self, symbol, train_start, train_end, feature_count=21, 
-                 data_source="yfinance", timesteps=100000, force_train=False,
+                 data_source="yahoo", timesteps=100000, force_train=False,
                  synthetic_params=None, model_params=None):
         """
         Get a trained model for the given parameters, using cache if available.
@@ -91,7 +91,7 @@ class TrainingManager:
             train_start (str): Start date for training data
             train_end (str): End date for training data
             feature_count (int): Number of features to use
-            data_source (str): Source of data ("yfinance", "synthetic")
+            data_source (str): Source of data ("yahoo", "synthetic")
             timesteps (int): Number of timesteps to train for
             force_train (bool): Force retraining even if cached model exists
             synthetic_params (dict): Parameters for synthetic data generation
@@ -150,7 +150,7 @@ class TrainingManager:
             print(f"Fetching training data for {symbol} from {train_start} to {train_end}...")
         
         # Normalize data source string to match what DataFetcherFactory expects
-        fetcher_source = "yahoo" if data_source.lower() == "yfinance" else data_source.lower()
+        fetcher_source = "yahoo" if data_source.lower() == "yahoo" else data_source.lower()
         
         try:
             # Create the appropriate data fetcher using the factory
