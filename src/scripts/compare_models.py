@@ -12,7 +12,9 @@ from datetime import datetime, timedelta
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.scripts.train_and_backtest import train_model, backtest_model
+from src.scripts.train_and_backtest import backtest_model
+from src.train.trainer import TrainingManager
+from src.data import DataFetcherFactory
 
 def evaluate_model_configurations(symbol, configurations, test_period, results_dir="results/comparison"):
     """
@@ -35,24 +37,29 @@ def evaluate_model_configurations(symbol, configurations, test_period, results_d
         'Total Return (%)', 'Sharpe Ratio', 'Max Drawdown (%)'
     ])
     
+    # Create training manager
+    training_manager = TrainingManager(models_dir=results_dir)
+    
     # Evaluate each configuration
     for i, config in enumerate(configurations):
         print(f"\n=== Testing Configuration {i+1}/{len(configurations)} ===")
         print(f"Training period: {config['train_start']} to {config['train_end']}")
         print(f"Timesteps: {config['timesteps']}")
         
-        # Create a model directory
-        model_name = f"{symbol}_{i+1}_model"
-        model_path = os.path.join(results_dir, model_name)
+        # Create synthetic parameters if needed
+        synthetic_params = config.get('synthetic_params', None)
         
-        # Train the model
-        model, model_path = train_model(
-            data_fetcher_type=config.get('data_source', 'yahoo'),
+        # Train (or get cached) model
+        model, model_path = training_manager.get_model(
             symbol=symbol,
-            start_date=config['train_start'],
-            end_date=config['train_end'],
-            model_path=model_path,
-            timesteps=config['timesteps']
+            train_start=config['train_start'],
+            train_end=config['train_end'],
+            feature_count=config.get('feature_count', 21),
+            data_source=config.get('data_source', 'yfinance'),
+            timesteps=config['timesteps'],
+            force_train=config.get('force_train', False),
+            synthetic_params=synthetic_params,
+            model_params=config.get('model_params', None)
         )
         
         if model is None:
@@ -64,10 +71,13 @@ def evaluate_model_configurations(symbol, configurations, test_period, results_d
         results = backtest_model(
             model_path=model_path,
             symbol=symbol,
-            start_date=test_start,
-            end_date=test_end,
-            data_source=config.get('data_source', 'yahoo'),
-            results_dir=os.path.join(results_dir, f"{symbol}_{i+1}")
+            test_start=test_start,
+            test_end=test_end,
+            data_source=config.get('data_source', 'yfinance'),
+            feature_count=config.get('feature_count', 21),
+            results_dir=os.path.join(results_dir, f"{symbol}_{i+1}"),
+            synthetic_params=synthetic_params,
+            transaction_fee_percent=config.get('fee', 0.001)
         )
         
         if results is None:
@@ -160,29 +170,39 @@ def define_default_configurations():
         {
             'train_start': f"{current_year-3}-01-01",
             'train_end': f"{current_year-1}-12-31",
-            'timesteps': 100000
+            'timesteps': 100000,
+            'data_source': 'yfinance',
+            'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01", 
             'train_end': f"{current_year-1}-12-31",
-            'timesteps': 100000
+            'timesteps': 100000,
+            'data_source': 'yfinance',
+            'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-06-30",
-            'timesteps': 100000
+            'timesteps': 100000,
+            'data_source': 'yfinance',
+            'feature_count': 21
         },
         
         # Different training durations (same end date)
         {
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-12-31",
-            'timesteps': 50000
+            'timesteps': 50000,
+            'data_source': 'yfinance',
+            'feature_count': 21
         },
         {
             'train_start': f"{current_year-2}-01-01",
             'train_end': f"{current_year-1}-12-31",
-            'timesteps': 200000
+            'timesteps': 200000,
+            'data_source': 'yfinance',
+            'feature_count': 21
         },
     ]
 
