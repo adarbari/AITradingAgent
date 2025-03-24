@@ -1,6 +1,6 @@
 # AI Trading Agent
 
-[![Tests](https://github.com/abhinavdarbari/AITradingAgent/actions/workflows/tests.yml/badge.svg)](https://github.com/abhinavdarbari/AITradingAgent/actions/workflows/tests.yml)
+[![Tests](https://github.com/adarbari/AITradingAgent/actions/workflows/tests.yml/badge.svg)](https://github.com/adarbari/AITradingAgent/actions/workflows/tests.yml)
 
 An artificial intelligence trading agent that uses reinforcement learning to trade financial assets.
 
@@ -42,7 +42,7 @@ This project implements a trading agent using reinforcement learning techniques,
 
 1. Clone the repository:
    ```
-   git clone https://github.com/abhinavdarbari/AITradingAgent.git
+   git clone https://github.com/adarbari/AITradingAgent.git
    cd AITradingAgent
    ```
 
@@ -94,4 +94,4 @@ python scripts/generate_test.py path/to/your/file.py
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
