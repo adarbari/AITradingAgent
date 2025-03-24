@@ -81,9 +81,9 @@ class BaseDataFetcher(ABC):
         df['Return'] = df['Close'].pct_change()
         
         # Forward fill NaN values
-        df.fillna(method='ffill', inplace=True)
+        df.ffill(inplace=True)
         # Backward fill any remaining NaN values at the beginning
-        df.fillna(method='bfill', inplace=True)
+        df.bfill(inplace=True)
         
         return df
     

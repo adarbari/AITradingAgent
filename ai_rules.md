@@ -96,6 +96,27 @@ def create_something(type_name, **kwargs):
 
 ## 6. Testing Approach
 
+- **Always Add Tests**: Every new class or module must have corresponding test files
+  - Place unit tests in `tests/unit/[module_name]/`
+  - Name test files with `test_` prefix matching the file being tested 
+  - Cover all public methods and edge cases
+  - Target minimum 80% code coverage
+  
+- **Test Structure and Fixtures**:
+  - Use pytest fixtures for shared test data
+  - Test for success cases, edge cases, and failure modes
+  - Isolate tests with proper mocking when needed
+
+- **Automated Test Execution**:
+  - Run tests after every significant code change
+  - Execute with `python run_tests.py` before committing
+  - Tests must pass before considering the code complete
+
+- **Test First Development**:
+  - When possible, write test cases before implementing features
+  - Use `scripts/generate_test.py` to generate test templates
+  - Fill in test implementations to validate requirements
+
 - Always run the main script after making changes to verify functionality
 - Test with synthetic data first before testing with real data sources
 - Provide a concrete example of how to use any new functionality you add

@@ -282,6 +282,283 @@ class TradingEnvironment(gym.Env):
         plt.grid(True)
         plt.show()
 
+class SafeTradingEnvironment(TradingEnvironment):
+    """
+    A TradingEnvironment with enhanced safety features to prevent crashes during training and inference.
+    
+    This class extends the base TradingEnvironment by adding:
+    1. Automatic handling of mismatched data lengths between prices and features
+    2. Index bounds checking to prevent IndexError exceptions
+    3. Automatic truncation to ensure data consistency
+    4. Proper tracking of portfolio values for reward calculation
+    5. Safe observation generation with bounds checking
+    6. Input validation to ensure data quality and report helpful errors
+    
+    The SafeTradingEnvironment is designed to make reinforcement learning training more robust
+    by avoiding common errors that would normally crash an episode, such as:
+    - Attempting to access an index beyond array bounds
+    - Working with price and feature data of different lengths
+    - Safe handling of environment resetting and termination conditions
+    
+    This allows the agent to focus on learning trading strategies rather than
+    dealing with environment crashes due to data inconsistencies.
+    """
+    
+    def __init__(self, prices, features, initial_balance=10000, transaction_fee_percent=0.001):
+        """
+        Initialize the environment with safety measures
+        
+        Args:
+            prices (np.array): Array of price data. If length differs from features, 
+                              it will be safely truncated.
+            features (np.array): Array of feature data. If length differs from prices,
+                                it will be safely truncated.
+            initial_balance (float): Starting cash balance for trading
+            transaction_fee_percent (float): Fee percentage for transactions (0.001 = 0.1%)
+            
+        Raises:
+            ValueError: If inputs are invalid (None, empty, or negative prices)
+        """
+        # Validate inputs before proceeding
+        self._validate_inputs(prices, features, initial_balance, transaction_fee_percent)
+        
+        # Calculate a safe max_steps value based on the data size
+        self.max_steps = min(len(prices), len(features)) - 1
+        
+        # Initialize portfolio values list for reward calculation
+        self.portfolio_values = []
+        
+        # Skip the length assertion in the parent class by creating truncated arrays of equal length
+        prices_safe = prices[:self.max_steps + 1] if len(prices) > self.max_steps + 1 else prices
+        features_safe = features[:self.max_steps + 1] if len(features) > self.max_steps + 1 else features
+        
+        super().__init__(prices=prices_safe, features=features_safe, initial_balance=initial_balance, 
+                         transaction_fee_percent=transaction_fee_percent)
+    
+    def _validate_inputs(self, prices, features, initial_balance, transaction_fee_percent):
+        """
+        Validate inputs to ensure they meet requirements for the environment
+        
+        Args:
+            prices (np.array): Array of price data
+            features (np.array): Array of feature data
+            initial_balance (float): Starting cash balance
+            transaction_fee_percent (float): Fee percentage for transactions
+            
+        Raises:
+            ValueError: If any inputs are invalid
+        """
+        # Check for None values
+        if prices is None:
+            raise ValueError("Prices cannot be None")
+        if features is None:
+            raise ValueError("Features cannot be None")
+            
+        # Check for empty arrays
+        if len(prices) == 0:
+            raise ValueError("Prices array cannot be empty")
+        if len(features) == 0:
+            raise ValueError("Features array cannot be empty")
+            
+        # Verify types
+        if not isinstance(prices, (list, np.ndarray)):
+            raise ValueError(f"Prices must be a list or numpy array, got {type(prices)}")
+        if not isinstance(features, (list, np.ndarray)):
+            raise ValueError(f"Features must be a list or numpy array, got {type(features)}")
+            
+        # Check for negative or zero prices
+        if isinstance(prices, np.ndarray) and np.any(prices <= 0):
+            raise ValueError("Prices must be positive values")
+        elif isinstance(prices, list) and any(p <= 0 for p in prices):
+            raise ValueError("Prices must be positive values")
+            
+        # Validate balance and fees
+        if initial_balance <= 0:
+            raise ValueError(f"Initial balance must be positive, got {initial_balance}")
+        if transaction_fee_percent < 0 or transaction_fee_percent > 1:
+            raise ValueError(f"Transaction fee must be between 0 and 1, got {transaction_fee_percent}")
+            
+        # Warn if prices and features have different lengths
+        if len(prices) != len(features):
+            print(f"Warning: Prices and features have different lengths. "
+                  f"Prices: {len(prices)}, Features: {len(features)}. "
+                  f"Data will be truncated to min length: {min(len(prices), len(features))}.")
+    
+    def reset(self, seed=None, options=None):
+        """
+        Reset the environment and initialize portfolio values
+        
+        Args:
+            seed (int, optional): Random seed for reproducibility
+            options (dict, optional): Additional options for environment reset
+            
+        Returns:
+            tuple: (observation, info) - Initial observation and information
+        """
+        observation, info = super().reset(seed=seed, options=options)
+        # Initialize portfolio values list
+        self.portfolio_values = [self._get_portfolio_value()]
+        return observation, info
+    
+    def _calculate_max_shares(self, price):
+        """
+        Calculate the maximum number of shares that can be bought with current balance
+        
+        This method accounts for transaction fees to ensure we don't attempt to buy
+        more shares than we can afford.
+        
+        Args:
+            price (float): Current price of the asset
+            
+        Returns:
+            int: Maximum number of shares that can be bought
+        """
+        max_shares = self.cash_balance // (price * (1 + self.transaction_fee_percent))
+        return int(max_shares)
+    
+    def _calculate_reward(self, action=None):
+        """
+        Calculate the reward based on the portfolio value change
+        
+        This uses the percentage change in portfolio value as the reward,
+        rather than comparing to a previous_net_worth parameter. This is more
+        robust as it always uses the latest portfolio value for calculations.
+        
+        Args:
+            action: The action taken (optional, not used in this implementation)
+            
+        Returns:
+            float: The calculated reward (percentage change in portfolio value)
+        """
+        # Get current portfolio value
+        current_value = self._get_portfolio_value()
+        
+        # Calculate reward based on portfolio value change
+        if len(self.portfolio_values) > 0:
+            previous_value = self.portfolio_values[-1]
+            reward = (current_value - previous_value) / previous_value
+        else:
+            reward = 0
+        
+        return reward
+    
+    def _get_observation(self):
+        """
+        Get current observation with safety checks to prevent index out of bounds errors
+        
+        This method ensures that the current_step index doesn't exceed the size of the
+        features array, preventing IndexError exceptions.
+        
+        Returns:
+            dict: Observation dictionary containing account_info and features
+        """
+        # Ensure current_step doesn't exceed the size of features
+        if self.current_step >= len(self.features):
+            self.current_step = len(self.features) - 1
+        
+        # Get the current features
+        features = self.features[self.current_step]
+        
+        # Create account info (3 elements to match the expected shape, with float32 type)
+        account_info = np.array([
+            float(self.cash_balance),
+            float(self.shares_held),
+            float(self.total_net_worth)
+        ], dtype=np.float32)
+        
+        # Create observation dictionary
+        observation = {
+            'account_info': account_info,
+            'features': features
+        }
+        
+        return observation
+    
+    def step(self, action):
+        """
+        Update environment state based on agent action with safety checks
+        
+        This method includes comprehensive safety checks:
+        1. Bounds checking to prevent stepping beyond data limits
+        2. Handling termination conditions safely
+        3. Tracking portfolio values for reward calculation
+        
+        Args:
+            action (int): Action to take (0 = Buy, 1 = Sell, other = Hold)
+            
+        Returns:
+            tuple: (observation, reward, terminated, truncated, info)
+        """
+        # Store the previous step for comparison
+        prev_step = self.current_step
+        
+        # Update current step with bounds checking
+        self.current_step += 1
+        
+        # Check if we've reached the end of our data
+        if self.current_step > self.max_steps:
+            # If we've reached the end of our data, terminate the episode
+            self.current_step = self.max_steps  # Ensure we don't go out of bounds
+            
+            # Get the current observation
+            observation = self._get_observation()
+            
+            # Calculate the final reward
+            reward = self._calculate_reward(action)
+            
+            # Set terminated to True since we've reached the end of the data
+            terminated = True
+            truncated = False
+            
+            # Get additional info
+            info = self._get_info()
+            
+            # Append the current portfolio value to our list
+            self.portfolio_values.append(self._get_portfolio_value())
+            
+            return observation, reward, terminated, truncated, info
+        
+        # Get current price
+        current_price = self.prices[self.current_step]
+        
+        # Process the action
+        action_type = action
+        
+        if action_type == 0:  # Buy
+            shares_to_buy = self._calculate_max_shares(current_price)
+            if shares_to_buy > 0:
+                cost = shares_to_buy * current_price
+                transaction_fee = cost * self.transaction_fee_percent
+                total_cost = cost + transaction_fee
+                
+                self.cash_balance -= total_cost
+                self.shares_held += shares_to_buy
+                self.total_shares_bought += shares_to_buy
+                
+        elif action_type == 1:  # Sell
+            if self.shares_held > 0:
+                proceeds = self.shares_held * current_price
+                transaction_fee = proceeds * self.transaction_fee_percent
+                total_proceeds = proceeds - transaction_fee
+                
+                self.cash_balance += total_proceeds
+                self.shares_held = 0
+                self.total_shares_sold += self.shares_held
+                
+        # Calculate reward, check if done, get observation and info
+        reward = self._calculate_reward(action)
+        
+        # Only terminate if we've reached exactly the max_steps
+        terminated = self.current_step >= self.max_steps
+        
+        truncated = False
+        observation = self._get_observation()
+        info = self._get_info()
+        
+        # Append the current portfolio value to our list
+        self.portfolio_values.append(self._get_portfolio_value())
+        
+        return observation, reward, terminated, truncated, info
 
 if __name__ == "__main__":
     # Example usage

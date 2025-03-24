@@ -6,7 +6,14 @@ import sys
 import pytest
 import numpy as np
 import pandas as pd
+import warnings
 from datetime import datetime, timedelta
+
+# Suppress specific deprecation warnings from external libraries
+warnings.filterwarnings("ignore", message="distutils Version classes are deprecated")
+warnings.filterwarnings("ignore", message="Box low's precision lowered by casting to float32")
+warnings.filterwarnings("ignore", message="Box high's precision lowered by casting to float32")
+warnings.filterwarnings("ignore", message="__array__ implementation doesn't accept a copy keyword")
 
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
