@@ -182,11 +182,13 @@ class TestDQNTradingAgent:
     def test_save_load(self):
         """Test saving and loading model weights"""
         # Save model
-        model_path = os.path.join('tests/test_models', 'test_dqn_model.weights.h5')
-        self.agent.save(model_path)
+        model_name = 'test_dqn_model.weights.h5'
+        success = self.agent.save(model_name)
         
-        # Check file exists
-        assert os.path.exists(model_path)
+        # Check save was successful and file exists
+        assert success
+        expected_path = os.path.join('tests/test_models', model_name)
+        assert os.path.exists(expected_path)
         
         # Create a new agent
         new_agent = DQNTradingAgent(
@@ -196,7 +198,8 @@ class TestDQNTradingAgent:
         )
         
         # Load the model
-        new_agent.load(model_path)
+        success = new_agent.load(model_name)
+        assert success
         
         # Check weights are the same
         for w1, w2 in zip(self.agent.model.get_weights(), new_agent.model.get_weights()):
@@ -353,7 +356,7 @@ class TestPPOTradingAgent:
         self.agent.train(total_timesteps=total_timesteps)
         
         # Check model.learn was called with correct parameters
-        self.agent.model.learn.assert_called_once_with(total_timesteps=total_timesteps)
+        self.agent.model.learn.assert_called_once_with(total_timesteps=total_timesteps, progress_bar=True)
     
     def test_test(self):
         """Test test method"""

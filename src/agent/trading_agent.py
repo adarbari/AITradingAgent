@@ -21,7 +21,9 @@ class DQNTradingAgent:
     Trading agent using Deep Q-Network (DQN).
     """
     
-    def __init__(self, state_size, action_size, model_dir='models', batch_size=64, gamma=0.95, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, learning_rate=0.001):
+    def __init__(self, state_size, action_size, model_dir='models', batch_size=64, gamma=0.95, 
+                 epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, learning_rate=0.001, 
+                 hidden_units=(128, 64), memory_size=10000, verbose=0):
         """
         Initialize the DQN agent.
         
@@ -35,6 +37,9 @@ class DQNTradingAgent:
             epsilon_decay (float, optional): Decay rate for exploration. Default is 0.995.
             epsilon_min (float, optional): Minimum exploration rate. Default is 0.01.
             learning_rate (float, optional): Learning rate. Default is 0.001.
+            hidden_units (tuple, optional): Sizes of hidden layers. Default is (128, 64).
+            memory_size (int, optional): Size of replay memory. Default is 10000.
+            verbose (int, optional): Verbosity level for model operations. Default is 0.
         """
         # State and action space
         self.state_size = state_size  # (window_size, num_features)
@@ -48,12 +53,15 @@ class DQNTradingAgent:
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
         self.learning_rate = learning_rate
+        self.hidden_units = hidden_units
+        self.memory_size = memory_size
+        self.verbose = verbose
         
         # Create model directory
         os.makedirs(model_dir, exist_ok=True)
         
         # Replay memory
-        self.memory = deque(maxlen=10000)
+        self.memory = deque(maxlen=memory_size)
         
         # Build model
         self.model = self._build_model()
@@ -78,8 +86,9 @@ class DQNTradingAgent:
         combined = layers.Concatenate()([feature_flatten, account_input])
         
         # Shared layers
-        x = layers.Dense(128, activation='relu')(combined)
-        x = layers.Dense(64, activation='relu')(x)
+        x = combined
+        for units in self.hidden_units:
+            x = layers.Dense(units, activation='relu')(x)
         
         # Output layer
         output = layers.Dense(self.action_size, activation='linear')(x)
@@ -114,7 +123,7 @@ class DQNTradingAgent:
         # Exploitation: use model to predict best action
         features = np.expand_dims(state['features'], axis=0)
         account_info = np.expand_dims(state['account_info'], axis=0)
-        q_values = self.model.predict([features, account_info], verbose=0)
+        q_values = self.model.predict([features, account_info], verbose=self.verbose)
         
         return np.argmax(q_values[0])
     
@@ -170,10 +179,10 @@ class DQNTradingAgent:
             dones.append(done)
         
         # Predict Q-values for current states
-        targets = self.model.predict([states_features, states_account], verbose=0)
+        targets = self.model.predict([states_features, states_account], verbose=self.verbose)
         
         # Predict Q-values for next states using target model
-        next_q_values = self.target_model.predict([next_states_features, next_states_account], verbose=0)
+        next_q_values = self.target_model.predict([next_states_features, next_states_account], verbose=self.verbose)
         
         # Update targets for actions taken
         for i, (action, reward, done) in enumerate(zip(actions, rewards, dones)):
@@ -185,7 +194,7 @@ class DQNTradingAgent:
         # Train the model
         self.model.fit(
             [states_features, states_account], targets, 
-            epochs=1, verbose=0, batch_size=batch_size
+            epochs=1, verbose=self.verbose, batch_size=batch_size
         )
         
         # Update exploration rate
@@ -198,14 +207,23 @@ class DQNTradingAgent:
         
         Args:
             name (str): Model name
+            
+        Returns:
+            bool: True if model loaded successfully, False otherwise
         """
+        path = os.path.join(self.model_dir, name)
         try:
-            print(f"Loading model from {name}")
-            self.model.load_weights(name)
+            print(f"Loading model from {path}")
+            self.model.load_weights(path)
             self.update_target_model()
             print("Model loaded successfully")
+            return True
+        except (OSError, IOError) as e:
+            print(f"Error loading model from {path}: File not found or inaccessible")
+            return False
         except Exception as e:
-            print(f"Error loading model: {e}")
+            print(f"Error loading model: {str(e)}")
+            return False
     
     def save(self, name):
         """
@@ -213,9 +231,18 @@ class DQNTradingAgent:
         
         Args:
             name (str): Model name
+            
+        Returns:
+            bool: True if model saved successfully, False otherwise
         """
-        print(f"Saving model to {name}")
-        self.model.save_weights(name)
+        path = os.path.join(self.model_dir, name)
+        try:
+            print(f"Saving model to {path}")
+            self.model.save_weights(path)
+            return True
+        except Exception as e:
+            print(f"Error saving model: {str(e)}")
+            return False
 
 
 class PPOTradingAgent:
@@ -223,7 +250,7 @@ class PPOTradingAgent:
     Trading agent using Proximal Policy Optimization (PPO).
     """
     
-    def __init__(self, env, model_dir='models', learning_rate=0.0001, n_steps=2048):
+    def __init__(self, env, model_dir='models', learning_rate=0.0001, n_steps=2048, batch_size=64, gamma=0.99, verbose=1):
         """
         Initialize the PPO agent.
         
@@ -232,11 +259,17 @@ class PPOTradingAgent:
             model_dir (str, optional): Directory to save models. Default is 'models'.
             learning_rate (float, optional): Learning rate. Default is 0.0001.
             n_steps (int, optional): Number of steps per update. Default is 2048.
+            batch_size (int, optional): Batch size for training. Default is 64.
+            gamma (float, optional): Discount factor. Default is 0.99.
+            verbose (int, optional): Verbosity level for model operations. Default is 1.
         """
         self.env = env
         self.model_dir = model_dir
         self.learning_rate = learning_rate
         self.n_steps = n_steps
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.verbose = verbose
         
         # Create model directory
         os.makedirs(model_dir, exist_ok=True)
@@ -250,9 +283,9 @@ class PPOTradingAgent:
             self.vec_env, 
             learning_rate=learning_rate,
             n_steps=n_steps,
-            batch_size=64,
-            gamma=0.99,
-            verbose=1
+            batch_size=batch_size,
+            gamma=gamma,
+            verbose=verbose
         )
     
     def train(self, total_timesteps=50000):
@@ -263,7 +296,7 @@ class PPOTradingAgent:
             total_timesteps (int, optional): Total timesteps for training. Default is 50000.
         """
         print(f"Training PPO agent for {total_timesteps} timesteps...")
-        self.model.learn(total_timesteps=total_timesteps)
+        self.model.learn(total_timesteps=total_timesteps, progress_bar=self.verbose > 0)
     
     def test(self, episodes=10):
         """
@@ -286,10 +319,18 @@ class PPOTradingAgent:
         
         Args:
             name (str): Model name
+            
+        Returns:
+            bool: True if model saved successfully, False otherwise
         """
         path = os.path.join(self.model_dir, name)
-        print(f"Saving model to {path}")
-        self.model.save(path)
+        try:
+            print(f"Saving model to {path}")
+            self.model.save(path)
+            return True
+        except Exception as e:
+            print(f"Error saving model: {str(e)}")
+            return False
     
     def load(self, name):
         """
@@ -297,20 +338,32 @@ class PPOTradingAgent:
         
         Args:
             name (str): Model name
+            
+        Returns:
+            bool: True if model loaded successfully, False otherwise
         """
         path = os.path.join(self.model_dir, name)
-        print(f"Loading model from {path}")
-        self.model = PPO.load(path, env=self.vec_env)
+        try:
+            print(f"Loading model from {path}")
+            self.model = PPO.load(path, env=self.vec_env)
+            return True
+        except (OSError, IOError) as e:
+            print(f"Error loading model from {path}: File not found or inaccessible")
+            return False
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            return False
     
-    def predict(self, observation):
+    def predict(self, observation, deterministic=True):
         """
         Predict action for a given observation.
         
         Args:
             observation (dict): Current observation
+            deterministic (bool, optional): Whether to use deterministic action selection. Default is True.
             
         Returns:
             int: Action to take
         """
-        action, _ = self.model.predict(observation, deterministic=True)
+        action, _ = self.model.predict(observation, deterministic=deterministic)
         return action 
