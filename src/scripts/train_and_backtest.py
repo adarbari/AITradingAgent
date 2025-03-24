@@ -177,15 +177,10 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
         data_fetcher = YahooDataFetcher()
         test_data = data_fetcher.fetch_ticker_data(symbol, test_start, test_end)
     else:
-        # Generate synthetic data for testing (placeholder)
-        days = pd.date_range(start=test_start, end=test_end, freq='D')
-        test_data = pd.DataFrame(index=days)
-        test_data['Close'] = np.linspace(100, 150, len(days))  # Simple linear price trend
-        test_data['Open'] = test_data['Close'] - 1
-        test_data['High'] = test_data['Close'] + 2
-        test_data['Low'] = test_data['Close'] - 2
-        test_data['Volume'] = np.random.randint(1000000, 2000000, size=len(days))
-        print(f"Generated {len(days)} days of synthetic data for {symbol}")
+        # Use SyntheticDataFetcher to generate consistent synthetic data
+        from src.data.synthetic_data_fetcher import SyntheticDataFetcher
+        data_fetcher = SyntheticDataFetcher()
+        test_data = data_fetcher.fetch_data(symbol, test_start, test_end)
     
     # Generate features using the feature engineering module
     print(f"Using feature engineering module with feature set: {feature_set}")

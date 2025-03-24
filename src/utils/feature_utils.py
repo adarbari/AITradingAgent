@@ -145,79 +145,28 @@ def get_data(symbol, start_date, end_date, data_source='yahoo', synthetic_params
 def _generate_synthetic_data(symbol, start_date, end_date, params=None):
     """
     Generate synthetic price data for testing when real data is unavailable.
+    Uses the SyntheticDataFetcher to ensure consistency across the codebase.
     
     Args:
         symbol (str): Symbol name (used only for reference)
         start_date (str): Start date in YYYY-MM-DD format
         end_date (str): End date in YYYY-MM-DD format
-        params (dict): Parameters for data generation
-            - initial_price: Starting price
-            - volatility: Daily volatility
-            - drift: Daily drift
+        params (dict): Parameters for data generation (passed to SyntheticDataFetcher)
     
     Returns:
         pd.DataFrame: Synthetic OHLCV data
     """
-    # Default parameters
-    if params is None:
-        params = {
-            "initial_price": 100.0,
-            "volatility": 0.01,
-            "drift": 0.0001
-        }
+    # Import and use SyntheticDataFetcher to maintain consistency
+    from src.data.synthetic_data_fetcher import SyntheticDataFetcher
     
-    initial_price = params.get("initial_price", 100.0)
-    volatility = params.get("volatility", 0.01)
-    drift = params.get("drift", 0.0001)
+    # Create a SyntheticDataFetcher instance
+    synthetic_fetcher = SyntheticDataFetcher()
     
-    # Create date range
-    start = pd.to_datetime(start_date)
-    end = pd.to_datetime(end_date)
-    date_range = pd.date_range(start=start, end=end, freq='B')  # Business days
+    # Use the fetch_data method to generate synthetic data
+    data = synthetic_fetcher.fetch_data(symbol, start_date, end_date)
     
-    # Generate synthetic prices
-    np.random.seed(42)  # For reproducibility
-    returns = np.random.normal(drift, volatility, size=len(date_range))
-    prices = initial_price * (1 + returns).cumprod()
-    
-    # Create synthetic OHLCV data
-    data = pd.DataFrame(index=date_range)
-    data['Close'] = prices
-    
-    # Simulate daily price action
-    daily_range_factor = 0.01
-    data['High'] = data['Close'] * (1 + np.random.uniform(0, daily_range_factor, size=len(date_range)))
-    data['Low'] = data['Close'] * (1 - np.random.uniform(0, daily_range_factor, size=len(date_range)))
-    data['Open'] = data['Low'] + np.random.uniform(0, 1, size=len(date_range)) * (data['High'] - data['Low'])
-    
-    # Simulate volume
-    volume_base = 1000000
-    volume_volatility = 0.3
-    data['Volume'] = volume_base * np.exp(np.random.normal(0, volume_volatility, size=len(date_range)))
-    
-    # Add columns to match Yahoo Finance format
-    data['Adj Close'] = data['Close']
-    data['Dividends'] = 0
-    data['Stock Splits'] = 0
-    
-    # Add the date as a column too
-    data['Date'] = data.index
-    
-    # Add some technical indicators
-    # SMA
-    data['SMA_5'] = data['Close'].rolling(window=5).mean()
-    data['SMA_20'] = data['Close'].rolling(window=20).mean()
-    
-    # Add RSI (simplified)
-    delta = data['Close'].diff()
-    gain = delta.clip(lower=0).rolling(window=14).mean()
-    loss = -delta.clip(upper=0).rolling(window=14).mean()
-    rs = gain / loss.replace(0, np.nan)  # Replace 0 with NaN to avoid division by zero
-    data['RSI_14'] = 100 - (100 / (1 + rs))
-    
-    # Fill NAs
-    data = data.fillna(method='bfill').fillna(method='ffill')
-    
-    print(f"Generated {len(data)} days of synthetic data from {start_date} to {end_date}")
+    # Add technical indicators if not already present
+    if 'SMA_5' not in data.columns:
+        data = synthetic_fetcher.add_technical_indicators(data)
     
     return data 

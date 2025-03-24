@@ -28,7 +28,7 @@ def calculate_sma_5(data: pd.DataFrame) -> pd.Series:
     
     close = pd.Series(close_values, index=data.index)
     sma = close.rolling(window=5).mean()
-    sma = sma.fillna(method='bfill').fillna(close)
+    sma = sma.bfill().fillna(close)
     
     # SMA/Price ratio (> 1 means price is below SMA, < 1 means price is above SMA)
     ratio = sma / close
@@ -55,7 +55,7 @@ def calculate_sma_10(data: pd.DataFrame) -> pd.Series:
     
     close = pd.Series(close_values, index=data.index)
     sma = close.rolling(window=10).mean()
-    sma = sma.fillna(method='bfill').fillna(close)
+    sma = sma.bfill().fillna(close)
     
     # SMA/Price ratio (> 1 means price is below SMA, < 1 means price is above SMA)
     ratio = sma / close
@@ -109,7 +109,7 @@ def calculate_sma_50(data: pd.DataFrame) -> pd.Series:
     """
     close = data['Close']
     sma = close.rolling(window=50).mean()
-    sma = sma.fillna(method='bfill').fillna(close)
+    sma = sma.bfill().fillna(close)
     
     # SMA/Price ratio (> 1 means price is below SMA, < 1 means price is above SMA)
     ratio = sma / close
@@ -131,7 +131,7 @@ def calculate_sma_200(data: pd.DataFrame) -> pd.Series:
     """
     close = data['Close']
     sma = close.rolling(window=200).mean()
-    sma = sma.fillna(method='bfill').fillna(close)
+    sma = sma.bfill().fillna(close)
     
     # SMA/Price ratio (> 1 means price is below SMA, < 1 means price is above SMA)
     ratio = sma / close

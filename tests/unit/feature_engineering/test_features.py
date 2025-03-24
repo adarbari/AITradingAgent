@@ -164,7 +164,7 @@ class TestTrendFeatures:
         assert len(result) == len(sample_ohlcv_data)
         
         # SMA_20 ratio should be the 20-day SMA divided by close
-        sma20 = sample_ohlcv_data['Close'].rolling(window=20).mean().fillna(method='bfill')
+        sma20 = sample_ohlcv_data['Close'].rolling(window=20).mean().bfill()
         expected_ratio = sma20 / sample_ohlcv_data['Close']
         pd.testing.assert_series_equal(result, expected_ratio, check_exact=False, check_names=False, atol=1e-4)
         
