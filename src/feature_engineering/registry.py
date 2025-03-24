@@ -73,10 +73,10 @@ class FeatureRegistry:
             Callable: Feature generator function
             
         Raises:
-            ValueError: If feature does not exist
+            KeyError: If feature does not exist
         """
         if name not in cls._features:
-            raise ValueError(f"Feature '{name}' is not registered.")
+            raise KeyError(f"Feature '{name}' not found")
         return cls._features.get(name)
     
     @classmethod
@@ -102,13 +102,13 @@ class FeatureRegistry:
     @classmethod
     def get_features_by_category(cls, category: str) -> List[str]:
         """
-        Get all features in a category.
+        Get all feature names in a specific category.
         
         Args:
             category (str): Category name
             
         Returns:
-            List[str]: List of feature names in the category
+            List[str]: List of feature names in the category (empty list if category doesn't exist)
         """
         return cls._categories.get(category, [])
     
@@ -122,9 +122,12 @@ class FeatureRegistry:
             
         Returns:
             Dict[str, Any]: Feature metadata
+            
+        Raises:
+            KeyError: If feature does not exist
         """
         if name not in cls._metadata:
-            raise ValueError(f"Feature '{name}' is not registered.")
+            raise KeyError(f"Feature '{name}' not found")
         return cls._metadata.get(name, {})
     
     @classmethod
@@ -141,10 +144,10 @@ class FeatureRegistry:
             pd.Series: Computed feature values
             
         Raises:
-            ValueError: If feature does not exist
+            KeyError: If feature does not exist
         """
         if name not in cls._features:
-            raise ValueError(f"Unknown feature: {name}")
+            raise KeyError(f"Feature '{name}' not found")
         return cls._features[name](data, **kwargs)
     
     @classmethod
@@ -170,4 +173,21 @@ class FeatureRegistry:
                 print(f"Error computing feature '{feature_name}': {e}")
                 continue
         
-        return pd.DataFrame(features, index=data.index) 
+        return pd.DataFrame(features, index=data.index)
+    
+    @classmethod
+    def get_feature_function(cls, name: str) -> Callable:
+        """
+        Get a feature generator function by name.
+        This is an alias for get_feature, provided for backward compatibility.
+        
+        Args:
+            name (str): Name of the feature
+            
+        Returns:
+            Callable: Feature generator function
+            
+        Raises:
+            KeyError: If feature does not exist
+        """
+        return cls.get_feature(name) 
