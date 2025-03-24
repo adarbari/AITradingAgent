@@ -113,13 +113,12 @@ def cleanup_test_files():
     yield
     
     # Clean up test model and results directories
-    # Uncomment these lines when you want to clean up test files
-    # import shutil
-    # test_models_dir = os.path.join('tests', 'test_models')
-    # test_results_dir = os.path.join('tests', 'test_results')
-    # 
-    # if os.path.exists(test_models_dir):
-    #     shutil.rmtree(test_models_dir)
-    # 
-    # if os.path.exists(test_results_dir):
-    #     shutil.rmtree(test_results_dir) 
+    import shutil
+    test_models_dir = os.path.join('tests', 'test_models')
+    test_results_dir = os.path.join('tests', 'test_results')
+    
+    if os.path.exists(test_models_dir):
+        shutil.rmtree(test_models_dir)
+    
+    if os.path.exists(test_results_dir):
+        shutil.rmtree(test_results_dir) 

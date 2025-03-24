@@ -70,7 +70,7 @@ class ModelTrainer(BaseModelTrainer):
         env = Monitor(env, log_dir)
         
         # Create PPO model with the default parameters
-        policy = 'MlpPolicy'
+        policy = 'MultiInputPolicy'
         learning_rate = 0.0003
         n_steps = 2048
         batch_size = 64
@@ -139,9 +139,4 @@ class ModelTrainer(BaseModelTrainer):
             with open(f"{model_path}.zip", "w") as f:
                 f.write("This is a dummy model file for testing purposes")
         
-        return model_path
-
-
-if __name__ == "__main__":
-    # Example usage
-    pass 
+        return model_path 
