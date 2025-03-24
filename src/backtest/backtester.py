@@ -11,8 +11,11 @@ from datetime import datetime, timedelta
 import joblib
 from stable_baselines3 import PPO
 import pandas_datareader.data as web
+import gymnasium as gym
+import yfinance as yf
 
 from .base_backtester import BaseBacktester
+from .benchmarks import BenchmarkFactory
 from ..agent.trading_env import TradingEnvironment
 from ..utils.helpers import (
     calculate_returns, 
@@ -37,94 +40,109 @@ class Backtester(BaseBacktester):
         Args:
             results_dir (str): Directory to store backtest results
         """
-        self.results_dir = results_dir
-        os.makedirs(results_dir, exist_ok=True)
+        super().__init__(results_dir)
+        
+        # Define default benchmarks
+        self.benchmarks = [
+            "buy_and_hold",  # Buy and hold the stock
+            "sp500",        # S&P 500 index
+            "nasdaq"        # NASDAQ index
+        ]
     
-    def backtest_model(self, model_path, symbol, test_start, test_end, data_source, env_class=TradingEnvironment):
+    def run_benchmarks(self, test_data, symbol, initial_balance=10000):
+        """
+        Run benchmark comparisons.
+        
+        Args:
+            test_data (pd.DataFrame): Test data with OHLCV columns
+            symbol (str): Symbol to run benchmarks for
+            initial_balance (float): Initial balance for benchmarks
+            
+        Returns:
+            dict: Dictionary containing benchmark results
+        """
+        benchmark_results = {}
+        
+        # Get start and end dates from test data
+        start_date = test_data.index[0].strftime('%Y-%m-%d')
+        end_date = test_data.index[-1].strftime('%Y-%m-%d')
+        
+        # Run each benchmark
+        for benchmark_type in self.benchmarks:
+            try:
+                # Create benchmark instance
+                benchmark = BenchmarkFactory.create_benchmark(benchmark_type, symbol, initial_balance)
+                
+                # Calculate returns
+                returns_df = benchmark.calculate_returns(start_date, end_date)
+                
+                if returns_df.empty:
+                    print(f"Warning: Empty returns DataFrame for {benchmark_type} benchmark")
+                    continue
+                
+                # Calculate metrics
+                portfolio_values = returns_df['value'].values
+                daily_returns = np.diff(portfolio_values) / portfolio_values[:-1]
+                
+                total_return = (portfolio_values[-1] - portfolio_values[0]) / portfolio_values[0]
+                sharpe_ratio = np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)  # Annualized
+                max_drawdown = np.min(portfolio_values / np.maximum.accumulate(portfolio_values)) - 1
+                
+                # Store results
+                benchmark_results[benchmark_type] = {
+                    'name': benchmark.name,  # Include the benchmark name
+                    'returns_df': pd.DataFrame(
+                        daily_returns,
+                        index=test_data.index[1:len(portfolio_values)],
+                        columns=['returns']
+                    ),
+                    'total_return': total_return,
+                    'sharpe_ratio': sharpe_ratio,
+                    'max_drawdown': max_drawdown
+                }
+            except Exception as e:
+                print(f"Error calculating {benchmark_type} benchmark: {e}")
+                continue
+        
+        return benchmark_results
+
+    def backtest_model(self, model_path, symbol, test_start, test_end, data_source="yfinance", env_class=None):
         """
         Backtest a trained model on historical data.
         
         Args:
-            model_path (str): Path to the trained model.
-            symbol (str): Symbol to backtest on.
-            test_start (str): Start date for testing (YYYY-MM-DD).
-            test_end (str): End date for testing (YYYY-MM-DD).
-            data_source (str): Source of data (e.g., 'yahoo', 'synthetic').
-            env_class (class): Environment class to use for backtesting.
+            model_path (str): Path to the saved model
+            symbol (str): Stock symbol to backtest on
+            test_start (str): Start date for testing (YYYY-MM-DD)
+            test_end (str): End date for testing (YYYY-MM-DD)
+            data_source (str): Source of data ("yfinance" or "synthetic")
+            env_class (class): Environment class to use (must be a gym.Env subclass)
             
         Returns:
-            dict: Results of the backtest including returns and performance metrics.
+            dict: Dictionary containing backtest results
         """
         print(f"Backtesting model {model_path} on {symbol} from {test_start} to {test_end}")
         
-        # Create output directory for this symbol
-        symbol_dir = os.path.join(self.results_dir, symbol)
-        os.makedirs(symbol_dir, exist_ok=True)
-        
-        # Load the model
-        try:
-            # Check if model path has .zip extension, add it if missing
-            if not model_path.endswith('.zip'):
-                model_full_path = f"{model_path}.zip"
-            else:
-                model_full_path = model_path
-            
-            # For unit tests, we need special handling when model_path is a mock path
-            if model_path == "mock_model_path":
-                # This is a test - we should let the mock load the model
-                from stable_baselines3 import PPO
-                model = PPO.load(model_path)
-            else:
-                # Real path, check if file exists first
-                if os.path.exists(model_full_path):
-                    from stable_baselines3 import PPO
-                    model = PPO.load(model_path)
-                else:
-                    raise FileNotFoundError(f"Model file not found at {model_full_path}")
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            traceback.print_exc()
-            # Return empty results in case of error
-            return {
-                'symbol': symbol,
-                'test_start': test_start,
-                'test_end': test_end,
-                'error': str(e)
-            }
-        
-        # Get data for backtesting
-        data_fetcher = DataFetcherFactory.create_data_fetcher(data_source)
-        data = data_fetcher.fetch_data(symbol, test_start, test_end)
-        data = data_fetcher.add_technical_indicators(data)
+        # Get test data
+        if data_source == "yfinance":
+            ticker = yf.Ticker(symbol)
+            test_data = ticker.history(start=test_start, end=test_end)
+        else:
+            # Generate synthetic data for testing
+            days = pd.date_range(start=test_start, end=test_end, freq='D')
+            test_data = pd.DataFrame(index=days)
+            test_data['Close'] = np.linspace(100, 150, len(days))  # Simple linear price trend
+            test_data['Open'] = test_data['Close'] - 1
+            test_data['High'] = test_data['Close'] + 2
+            test_data['Low'] = test_data['Close'] - 2
+            test_data['Volume'] = np.random.randint(1000000, 2000000, size=len(days))
+            print(f"Generated {len(days)} days of synthetic data for {symbol}")
         
         # Prepare data for the agent
-        result = data_fetcher.prepare_data_for_agent(data)
+        prices = test_data['Close'].values
+        features = self.prepare_data_for_agent(test_data)
         
-        # Handle different return types from prepare_data_for_agent
-        if isinstance(result, tuple) and len(result) == 2:
-            # SyntheticDataFetcher returns (prices, features)
-            prices, features = result
-        else:
-            # BaseDataFetcher returns just features, which may be windowed data
-            features = result
-            # If features length is less than original data, it's using windows
-            # Adjust prices to match the length of features
-            if len(features) < len(data):
-                window_size = 20  # Default window size
-                prices = data['Close'].values[window_size-1:]
-            else:
-                prices = data['Close'].values
-        
-        # Final check to ensure lengths match
-        if len(prices) != len(features):
-            print(f"Warning: Adjusting price data length from {len(prices)} to {len(features)} to match features")
-            if len(prices) > len(features):
-                prices = prices[-len(features):]
-            else:
-                # This should not happen, but just in case
-                features = features[-len(prices):]
-        
-        # Create the environment
+        # Create environment
         env = env_class(
             prices=prices,
             features=features,
@@ -132,278 +150,214 @@ class Backtester(BaseBacktester):
             transaction_fee_percent=0.001
         )
         
+        # Load the trained model
+        model = PPO.load(model_path)
+        
+        # Initialize tracking variables
+        portfolio_values = []
+        actions_taken = []
+        current_step = 0
+        
         # Reset the environment
         obs, _ = env.reset()
         
-        # We'll create the dataframe after collecting portfolio values
-        done = False
-        portfolio_values = []
-        
         # Run the backtest
-        while not done:
-            # Get action from the model
-            action, _ = model.predict(obs)
+        while current_step < len(prices) - 1:
+            # Get action from model
+            action, _ = model.predict(obs, deterministic=True)
             
-            # Execute action in the environment
+            # Take step in environment
             obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
             
-            # Store the portfolio value
+            # Record portfolio value and action
             portfolio_values.append(info['portfolio_value'])
-        
-        # Get the dates corresponding to the environment steps
-        if len(portfolio_values) < len(data):
-            # If using windowed data, we need to adjust the dates
-            date_subset = data.iloc[len(data) - len(portfolio_values):]['Date']
-        else:
-            date_subset = data['Date']
+            actions_taken.append(info['actual_action'])
             
-        # Create a dataframe for returns analysis using only the dates
-        # that correspond to the portfolio values
-        returns_df = pd.DataFrame(index=range(len(portfolio_values)))
-        returns_df['Date'] = date_subset.values[-len(portfolio_values):]
-        returns_df.set_index('Date', inplace=True)
-        
-        # Store results in the dataframe
-        returns_df['portfolio_value'] = portfolio_values
-        
-        # Calculate performance metrics
-        initial_value = returns_df['portfolio_value'].iloc[0]
-        final_value = returns_df['portfolio_value'].iloc[-1]
-        total_return = (final_value / initial_value - 1) * 100
+            current_step += 1
+            if terminated or truncated:
+                break
         
         # Calculate daily returns
-        returns_df['daily_return'] = returns_df['portfolio_value'].pct_change()
+        portfolio_values = np.array(portfolio_values)
+        daily_returns = np.diff(portfolio_values) / portfolio_values[:-1]
         
-        # Calculate Sharpe ratio (assuming risk-free rate of 0)
-        sharpe_ratio = np.sqrt(252) * returns_df['daily_return'].mean() / returns_df['daily_return'].std()
+        # Create returns DataFrame
+        returns_df = pd.DataFrame(
+            daily_returns,
+            index=test_data.index[1:len(portfolio_values)],
+            columns=['returns']
+        )
         
-        # Calculate maximum drawdown
-        returns_df['cumulative_max'] = returns_df['portfolio_value'].cummax()
-        returns_df['drawdown'] = (returns_df['portfolio_value'] / returns_df['cumulative_max'] - 1) * 100
-        max_drawdown = returns_df['drawdown'].min()
+        # Calculate performance metrics
+        total_return = (portfolio_values[-1] - portfolio_values[0]) / portfolio_values[0]
+        sharpe_ratio = np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)  # Annualized
+        max_drawdown = np.min(portfolio_values / np.maximum.accumulate(portfolio_values)) - 1
         
-        # Get market performance for comparison
-        market_data = self.get_market_performance(test_start, test_end)
+        # Run benchmark comparisons
+        benchmark_results = self.run_benchmarks(test_data, symbol, initial_balance=10000)
         
-        # Plot comparison
-        plot_path = self.plot_comparison(returns_df, market_data, symbol)
-        
-        # Save returns dataframe
-        returns_path = os.path.join(symbol_dir, "returns.csv")
-        returns_df.to_csv(returns_path)
-        
-        # Compile results
+        # Save results
         results = {
-            'symbol': symbol,
-            'test_start': test_start,
-            'test_end': test_end,
-            'initial_value': initial_value,
-            'final_value': final_value,
+            'returns': returns_df,
             'total_return': total_return,
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
-            'returns': returns_df,
-            'plot_path': plot_path,
-            'returns_path': returns_path
+            'benchmark_results': benchmark_results,
+            'portfolio_values': portfolio_values,
+            'actions': actions_taken
         }
         
-        # Print summary
-        print(f"Backtest Results for {symbol}")
-        print(f"Total Return: {total_return:.2f}%")
-        print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
-        print(f"Max Drawdown: {max_drawdown:.2f}%")
+        # Save results to file
+        results_file = os.path.join(self.results_dir, f"{symbol}_backtest_results.json")
+        self.save_results(results, results_file)
+        
+        # Plot comparison
+        self.plot_comparison(symbol, results)
         
         return results
     
-    def get_market_performance(self, test_start, test_end):
-        """
-        Get market performance for comparison.
-        
-        Args:
-            test_start (str): Start date (YYYY-MM-DD).
-            test_end (str): End date (YYYY-MM-DD).
-            
-        Returns:
-            pd.DataFrame: Market performance data.
-        """
-        # Get S&P 500 data for comparison
-        try:
-            market_data = web.DataReader("^GSPC", "yahoo", test_start, test_end)
-            
-            # Normalize to compare with the portfolio
-            market_data['Normalized'] = market_data['Close'] / market_data['Close'].iloc[0]
-            
-            return market_data
-        except Exception as e:
-            print(f"Error getting market data: {e}")
-            print("Using synthetic market data for testing")
-            
-            # Create synthetic market data for testing purposes
-            start_date = pd.to_datetime(test_start)
-            end_date = pd.to_datetime(test_end)
-            date_range = pd.date_range(start=start_date, end=end_date, freq='B')
-            
-            # Generate some random market data
-            np.random.seed(42)  # For reproducibility
-            initial_price = 100
-            returns = np.random.normal(0.0005, 0.01, size=len(date_range))
-            cumulative_returns = np.cumprod(1 + returns)
-            prices = initial_price * cumulative_returns
-            
-            # Create a DataFrame
-            market_data = pd.DataFrame({
-                'Close': prices,
-            }, index=date_range)
-            
-            # Normalize to compare with the portfolio
-            market_data['Normalized'] = market_data['Close'] / market_data['Close'].iloc[0]
-            
-            return market_data
-    
-    def plot_comparison(self, returns_df, market_data, symbol):
-        """
-        Plot comparison between model and market performance.
-        
-        Args:
-            returns_df (pd.DataFrame): DataFrame with portfolio values.
-            market_data (pd.DataFrame): DataFrame with market data.
-            symbol (str): Symbol being backtested.
-            
-        Returns:
-            str: Path to the saved plot.
-        """
-        # Create output directory
-        symbol_dir = os.path.join(self.results_dir, symbol)
-        os.makedirs(symbol_dir, exist_ok=True)
-        
-        # Create plot
+    def plot_comparison(self, symbol, results):
+        """Plot performance comparison between strategy and benchmarks"""
         plt.figure(figsize=(12, 6))
-        
-        # Normalize portfolio value to start at 1
-        normalized_portfolio = returns_df['portfolio_value'] / returns_df['portfolio_value'].iloc[0]
-        
-        # Plot normalized portfolio value
-        plt.plot(returns_df.index, normalized_portfolio, label=f"{symbol} Strategy")
-        
-        # Plot market performance if available
-        if not market_data.empty:
-            # Align dates
-            common_dates = market_data.index.intersection(returns_df.index)
-            if len(common_dates) > 0:
-                plt.plot(common_dates, market_data.loc[common_dates, 'Normalized'], label="S&P 500", linestyle='--')
-        
-        # Add labels and title
-        plt.title(f"{symbol} Strategy vs. Market")
-        plt.xlabel("Date")
-        plt.ylabel("Normalized Value")
+
+        # Normalize portfolio returns
+        normalized_portfolio = results['returns']['returns'] + 1
+        plt.plot(normalized_portfolio.index, normalized_portfolio, label='Trading Strategy')
+
+        # Plot each benchmark
+        for name, benchmark in results['benchmark_results'].items():
+            benchmark_df = benchmark['returns_df']
+            normalized_benchmark = benchmark_df['returns'] + 1
+            plt.plot(normalized_benchmark.index, normalized_benchmark, label=name)
+
+        plt.title(f'Performance Comparison - {symbol}')
+        plt.xlabel('Date')
+        plt.ylabel('Normalized Portfolio Value')
         plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # Save the plot
-        plot_path = os.path.join(symbol_dir, "market_comparison.png")
-        plt.savefig(plot_path)
+        plt.grid(True)
+
+        # Save plot
+        plt.savefig(os.path.join(self.results_dir, f'{symbol}_market_comparison.png'))
         plt.close()
-        
-        return plot_path
 
     def save_results(self, results, file_path):
-        """
-        Save backtest results to a file.
-        
-        Args:
-            results (dict): Results from the backtest.
-            file_path (str): Path to save the results to.
+        """Save backtest results to file"""
+        # Create a copy of results to modify
+        if 'portfolio_values' in results:
+            # Format from backtest_model
+            json_results = {
+                'final_value': float(results['portfolio_values'][-1]),
+                'initial_value': float(results['portfolio_values'][0]),
+                'total_return': float(results['total_return']),
+                'sharpe_ratio': float(results['sharpe_ratio']),
+                'max_drawdown': float(results['max_drawdown']),
+                'benchmark_results': {}
+            }
+        else:
+            # Format from test_save_and_load_results
+            json_results = {
+                'final_value': float(results['final_value']),
+                'initial_value': float(results['initial_value']),
+                'total_return': float(results['total_return']),
+                'sharpe_ratio': float(results['sharpe_ratio']),
+                'max_drawdown': float(results['max_drawdown']),
+                'benchmark_results': {}
+            }
+
+        # Save returns DataFrame separately
+        returns_csv_path = file_path.replace('.json', '_returns.csv')
+        results['returns'].to_csv(returns_csv_path)
+
+        # Convert benchmark DataFrames to CSV
+        for name, benchmark in results['benchmark_results'].items():
+            benchmark_csv_path = os.path.join(os.path.dirname(file_path), f'benchmark_{name}_returns.csv')
+            benchmark['returns_df'].to_csv(benchmark_csv_path)
             
-        Returns:
-            str: Path to the saved file.
-        """
-        import json
-        
-        # Save the returns DataFrame to a separate CSV file
-        if 'returns' in results:
-            csv_path = file_path.replace('.json', '_returns.csv')
-            # Check if returns is a DataFrame or a list
-            if hasattr(results['returns'], 'to_csv'):
-                results['returns'].to_csv(csv_path)
-            else:
-                # Convert list to DataFrame
-                pd.DataFrame({'returns': results['returns']}).to_csv(csv_path)
-            print(f"Returns data saved to {csv_path}")
-        
-        # Convert any non-serializable objects to serializable format
-        serializable_results = {}
-        for key, value in results.items():
-            if key == 'returns':
-                # Store the original returns in the serializable results if it's not a DataFrame
-                if not isinstance(value, pd.DataFrame):
-                    serializable_results[key] = value
-                # Also store the path to the CSV file
-                serializable_results[key + '_path'] = csv_path
-            elif key == 'model':
-                # Skip the model as it's not serializable
-                continue
-            elif isinstance(value, pd.DataFrame):
-                # Convert DataFrames to dictionaries for JSON serialization
-                serializable_results[key] = value.to_dict()
-            elif isinstance(value, np.ndarray):
-                # Convert numpy arrays to lists for JSON serialization
-                serializable_results[key] = value.tolist()
-            elif hasattr(value, 'tolist') and callable(getattr(value, 'tolist')):
-                # For other array-like objects that have a tolist method
-                serializable_results[key] = value.tolist()
-            else:
-                # Keep other values as is if they are serializable
-                try:
-                    # Test if the value is JSON serializable
-                    json.dumps(value)
-                    serializable_results[key] = value
-                except (TypeError, OverflowError):
-                    # If not serializable, convert to string representation
-                    serializable_results[key] = str(value)
-        
-        # Save to file
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(serializable_results, f, indent=4)
-            print(f"Results saved to {file_path}")
-            return file_path
-        except Exception as e:
-            print(f"Error saving results: {e}")
-            if self.verbose >= 1:
-                traceback.print_exc()
-            return None
-    
+            # Store benchmark metrics
+            json_results['benchmark_results'][name] = {
+                'name': benchmark['name'],  # Use the actual benchmark name
+                'total_return': float(benchmark['total_return']),
+                'sharpe_ratio': float(benchmark['sharpe_ratio']),
+                'max_drawdown': float(benchmark['max_drawdown']),
+                'returns_csv_path': benchmark_csv_path
+            }
+
+        # Save JSON results
+        with open(file_path, 'w') as f:
+            json.dump(json_results, f)
+
+        print(f"Returns data saved to {returns_csv_path}")
+        print(f"Results saved to {file_path}")
+
     def load_results(self, file_path):
+        """Load backtest results from file"""
+        # Load JSON results
+        with open(file_path, 'r') as f:
+            json_results = json.load(f)
+
+        # Load returns DataFrame
+        returns_csv_path = file_path.replace('.json', '_returns.csv')
+        returns_df = pd.read_csv(returns_csv_path, index_col=0, parse_dates=True)
+
+        # Create results dictionary
+        results = {
+            'returns': returns_df,
+            'final_value': json_results['final_value'],
+            'initial_value': json_results['initial_value'],
+            'total_return': json_results['total_return'],
+            'sharpe_ratio': json_results['sharpe_ratio'],
+            'max_drawdown': json_results['max_drawdown'],
+            'benchmark_results': {}
+        }
+
+        # Load benchmark results
+        for name, benchmark in json_results['benchmark_results'].items():
+            benchmark_df = pd.read_csv(benchmark['returns_csv_path'], index_col=0, parse_dates=True)
+            results['benchmark_results'][name] = {
+                'name': benchmark['name'],  # Use the name from the loaded JSON
+                'returns_df': benchmark_df,
+                'total_return': benchmark['total_return'],
+                'sharpe_ratio': benchmark['sharpe_ratio'],
+                'max_drawdown': benchmark['max_drawdown']
+            }
+
+        return results
+
+    def prepare_data_for_agent(self, data):
         """
-        Load backtest results from a file.
+        Prepare data for the trading agent.
         
         Args:
-            file_path (str): Path to the file.
+            data (pd.DataFrame): Raw price data with OHLCV columns
             
         Returns:
-            dict: Loaded results.
+            np.array: Processed features for the agent
         """
-        import json
+        # Calculate basic technical indicators
+        features = []
         
-        try:
-            with open(file_path, 'r') as f:
-                results = json.load(f)
-                
-            # Check if there's a returns path
-            returns_path = results.get('returns_path')
-            if returns_path and os.path.exists(returns_path):
-                # Load returns data from CSV
-                returns_df = pd.read_csv(returns_path, index_col=0)
-                
-                # Check if we have the 'returns' column or if it's the index
-                if 'returns' in returns_df.columns:
-                    results['returns'] = returns_df['returns'].values
-                else:
-                    # If format is different, take the first column
-                    results['returns'] = returns_df.iloc[:, 0].values
-                
-            return results
-        except Exception as e:
-            print(f"Error loading results: {e}")
-            return None 
+        # Price changes
+        close_prices = data['Close'].values
+        features.append(np.diff(close_prices, prepend=close_prices[0]) / close_prices)  # Returns
+        
+        # Volatility (rolling std of returns)
+        returns = np.diff(close_prices, prepend=close_prices[0]) / close_prices
+        vol = pd.Series(returns).rolling(window=5).std().fillna(0).values
+        features.append(vol)
+        
+        # Volume changes
+        volume = data['Volume'].values
+        features.append(np.diff(volume, prepend=volume[0]) / volume)
+        
+        # Price momentum
+        momentum = pd.Series(close_prices).pct_change(periods=5).fillna(0).values
+        features.append(momentum)
+        
+        # High-Low range
+        high_low_range = (data['High'].values - data['Low'].values) / data['Close'].values
+        features.append(high_low_range)
+        
+        # Stack features into a 2D array
+        features = np.stack(features, axis=1)
+        
+        return features 
