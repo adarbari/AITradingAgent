@@ -1,3 +1,15 @@
 {
-  "models": {}
+  "models": {
+    "f87753d8e86185b7aa9ee476b5dba547": {
+      "model_path": "models/ppo_AMZN_2023_2024_f87753d8",
+      "symbol": "AMZN",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 20000,
+      "created_at": "2025-03-24 09:23:45",
+      "hash": "f87753d8e86185b7aa9ee476b5dba547"
+    }
+  }
 }
