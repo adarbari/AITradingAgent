@@ -406,4 +406,48 @@ class TestFeatureEngineeringIntegration:
         for feature, corr in corr_matrix.items():
             if len(corr) > 1:
                 # If there's more than one stock, check that not all correlations are 1
-                assert not np.all(np.abs(corr.values - 1.0) < 1e-8), f"Feature {feature} is identical across all stocks" 
+                assert not np.all(np.abs(corr.values - 1.0) < 1e-8), f"Feature {feature} is identical across all stocks"
+    
+    def test_multi_dimensional_arrays_handling(self, test_data):
+        """
+        Test that the feature engineering pipeline correctly handles multi-dimensional arrays.
+        This test ensures that features like price_change can handle data where Close or other
+        columns might be multi-dimensional arrays (shape n x 1) instead of 1D arrays.
+        """
+        # Get a single stock's data
+        data = test_data["AAPL"]
+        
+        # Convert some columns to multi-dimensional arrays to simulate the real-world issue
+        for col in ['Close', 'Volume', 'High', 'Low']:
+            # Convert to a 2D array (n x 1)
+            data[col] = data[col].values.reshape(-1, 1)
+        
+        # Process the features - this should not raise any dimensionality errors
+        try:
+            # Test with a minimal set of features that previously had dimensionality issues
+            test_features = ["price_change", "volume_change", "high_low_range"]
+            features = FeatureRegistry.compute_features(test_features, data)
+            
+            # Verify results
+            assert isinstance(features, pd.DataFrame)
+            assert len(features) == len(data)
+            assert set(features.columns) == set(test_features)
+            
+            # Also test with the standard feature set
+            pipeline = FeaturePipeline(
+                feature_list=FEATURE_CONFIGS["standard"],
+                feature_count=21,
+                verbose=True
+            )
+            std_features = pipeline.process(data)
+            
+            # Verify results
+            assert isinstance(std_features, pd.DataFrame)
+            assert len(std_features) == len(data)
+            assert len(std_features.columns) == 21  # Expected feature count
+            
+        except ValueError as e:
+            if "Data must be 1-dimensional" in str(e):
+                pytest.fail(f"Failed to handle multi-dimensional data: {e}")
+            else:
+                raise 

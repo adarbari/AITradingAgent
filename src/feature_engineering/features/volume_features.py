@@ -22,6 +22,11 @@ def calculate_volume_change(data: pd.DataFrame) -> pd.Series:
         pd.Series: Volume change values
     """
     volumes = data['Volume'].values
+    
+    # Ensure we're working with a 1D array
+    if len(volumes.shape) > 1:
+        volumes = volumes.flatten()
+        
     # Calculate as (current volume - previous volume) / previous volume
     volume_changes = np.zeros_like(volumes, dtype=float)
     volume_changes[1:] = (volumes[1:] - volumes[:-1]) / np.maximum(volumes[:-1], 1e-8)

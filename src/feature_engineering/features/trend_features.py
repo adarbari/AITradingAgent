@@ -21,7 +21,12 @@ def calculate_sma_5(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: SMA5 to close price ratio
     """
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
     sma = close.rolling(window=5).mean()
     sma = sma.fillna(method='bfill').fillna(close)
     
@@ -43,7 +48,12 @@ def calculate_sma_10(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: SMA10 to close price ratio
     """
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
     sma = close.rolling(window=10).mean()
     sma = sma.fillna(method='bfill').fillna(close)
     
@@ -133,7 +143,12 @@ def calculate_ema_12(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: EMA12 to close price ratio
     """
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
     ema = close.ewm(span=12, adjust=False).mean()
     
     # EMA/Price ratio (> 1 means price is below EMA, < 1 means price is above EMA)
@@ -154,7 +169,12 @@ def calculate_ema_26(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: EMA26 to close price ratio
     """
-    close = data['Close']
+    # Ensure we're working with 1D arrays
+    close_values = data['Close'].values
+    if len(close_values.shape) > 1:
+        close_values = close_values.flatten()
+    
+    close = pd.Series(close_values, index=data.index)
     ema = close.ewm(span=26, adjust=False).mean()
     
     # EMA/Price ratio (> 1 means price is below EMA, < 1 means price is above EMA)

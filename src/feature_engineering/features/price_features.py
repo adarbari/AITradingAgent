@@ -21,9 +21,12 @@ def calculate_price_change(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: Daily price changes
     """
+    # Ensure we're working with a 1D array
     close_prices = data['Close'].values
+    if len(close_prices.shape) > 1:
+        close_prices = close_prices.flatten()
+        
     # Calculate as (current close - previous close) / previous close
-    # Use diff to maintain exactly the formula in the test
     price_changes = np.zeros_like(close_prices, dtype=float)
     price_changes[1:] = (close_prices[1:] - close_prices[:-1]) / close_prices[:-1]
     
@@ -43,8 +46,22 @@ def calculate_high_low_range(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: High-low range values
     """
-    # Return exactly what the test expects - no abs(), no nan handling, just the raw calculation
-    return (data['High'] - data['Low']) / data['Close']
+    # Ensure we're working with 1D arrays
+    high = data['High'].values
+    low = data['Low'].values
+    close = data['Close'].values
+    
+    if len(high.shape) > 1:
+        high = high.flatten()
+    if len(low.shape) > 1:
+        low = low.flatten()
+    if len(close.shape) > 1:
+        close = close.flatten()
+        
+    # Calculate high-low range
+    result = (high - low) / np.maximum(close, 1e-8)
+    result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="gap", category="price")
@@ -58,10 +75,19 @@ def calculate_gap(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: Overnight gap values
     """
-    shifted_close = np.roll(data['Close'].values, 1)
-    shifted_close[0] = data['Open'].values[0]  # First value has no previous close
+    # Ensure we're working with 1D arrays
+    open_prices = data['Open'].values
+    close_prices = data['Close'].values
     
-    gap = (data['Open'].values - shifted_close) / np.maximum(shifted_close, 1e-8)
+    if len(open_prices.shape) > 1:
+        open_prices = open_prices.flatten()
+    if len(close_prices.shape) > 1:
+        close_prices = close_prices.flatten()
+    
+    shifted_close = np.roll(close_prices, 1)
+    shifted_close[0] = open_prices[0]  # First value has no previous close
+    
+    gap = (open_prices - shifted_close) / np.maximum(shifted_close, 1e-8)
     result = np.nan_to_num(gap, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
@@ -77,16 +103,33 @@ def calculate_vwap_distance(data: pd.DataFrame) -> pd.Series:
     Returns:
         pd.Series: Distance from VWAP
     """
+    # Ensure we're working with 1D arrays
+    high = data['High'].values
+    low = data['Low'].values
+    close = data['Close'].values
+    volume = data['Volume'].values
+    
+    if len(high.shape) > 1:
+        high = high.flatten()
+    if len(low.shape) > 1:
+        low = low.flatten()
+    if len(close.shape) > 1:
+        close = close.flatten()
+    if len(volume.shape) > 1:
+        volume = volume.flatten()
+    
     # Calculate typical price
-    typical_price = (data['High'] + data['Low'] + data['Close']) / 3
+    typical_price = (high + low + close) / 3
     
     # Calculate VWAP
-    vwap = (typical_price * data['Volume']).cumsum() / data['Volume'].cumsum()
+    cum_tp_vol = np.cumsum(typical_price * volume)
+    cum_vol = np.cumsum(volume)
+    vwap = cum_tp_vol / np.maximum(cum_vol, 1e-8)
     
     # Calculate distance from VWAP
-    distance = (data['Close'] - vwap) / np.maximum(vwap, 1e-8)
+    distance = (close - vwap) / np.maximum(vwap, 1e-8)
     
-    result = np.nan_to_num(distance.values, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(distance, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
 
@@ -102,10 +145,22 @@ def calculate_price_dispersion(data: pd.DataFrame, window: int = 5) -> pd.Series
     Returns:
         pd.Series: Price dispersion values
     """
-    rolling_high = data['High'].rolling(window=window).max()
-    rolling_low = data['Low'].rolling(window=window).min()
+    # Handle potential multi-dimensional data
+    high = data['High']
+    low = data['Low']
+    close = data['Close']
     
-    dispersion = (rolling_high - rolling_low) / np.maximum(data['Close'], 1e-8)
+    if isinstance(high, pd.Series) and high.values.ndim > 1:
+        high = pd.Series(high.values.flatten(), index=high.index)
+    if isinstance(low, pd.Series) and low.values.ndim > 1:
+        low = pd.Series(low.values.flatten(), index=low.index)
+    if isinstance(close, pd.Series) and close.values.ndim > 1:
+        close = pd.Series(close.values.flatten(), index=close.index)
+    
+    rolling_high = high.rolling(window=window).max()
+    rolling_low = low.rolling(window=window).min()
+    
+    dispersion = (rolling_high - rolling_low) / np.maximum(close, 1e-8)
     
     result = np.nan_to_num(dispersion.values, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index) 
