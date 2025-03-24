@@ -56,7 +56,11 @@ ENV/
 
 # Project specific
 data/external/
+data/synthetic/
+data/cache/
 models/trained/
+models/*_logs/
+models/*.zip
 plots/
 results/
 
