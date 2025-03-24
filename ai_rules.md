@@ -4,10 +4,11 @@ When providing assistance with this project, please adhere to the following guid
 
 ## 1. Code Organization Rules
 
-- **Maintain Modular Structure**: Keep the 5 main modules separate - data, models, backtest, agent, and utils.
+- **Maintain Modular Structure**: Keep the 6 main modules separate - data, models, backtest, agent, utils, and scripts.
 - **Respect Interface Boundaries**: Any new implementation must adhere to its respective base interface.
 - **Package Organization**: New files should be placed in the appropriate module directory with proper imports in the `__init__.py` file.
 - **Single Responsibility**: Each class should have a focused purpose; avoid creating overly complex classes.
+- **Script Organization**: All executable scripts should be placed in the `src/scripts/` directory.
 
 ## 2. Interface Implementation Rules
 
@@ -36,6 +37,13 @@ When providing assistance with this project, please adhere to the following guid
   - Must implement `BaseTradingEnvironment`
   - Need to conform to the Gym API requirements
   - Should handle boundary conditions (beginning/end of data)
+
+- **New Scripts**:
+  - Place in the `src/scripts/` directory
+  - Follow consistent argument parsing patterns
+  - Include proper error handling and logging
+  - Provide clear usage instructions in docstrings
+  - Reuse existing components through proper imports
 
 ## 4. Design Principles to Follow
 
@@ -94,10 +102,40 @@ def create_something(type_name, **kwargs):
         return None
 ```
 
+### Script Pattern
+```python
+#!/usr/bin/env python3
+"""
+Description of what the script does.
+"""
+import argparse
+import os
+import sys
+
+# Add project root to sys.path if needed
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+def main():
+    """Main function that handles the workflow of the script."""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Script description")
+    parser.add_argument("--some-arg", type=str, default="default", help="Description of argument")
+    args = parser.parse_args()
+    
+    # Script logic here
+    
+    # Handle errors and provide feedback
+    print("Operation completed successfully")
+
+if __name__ == "__main__":
+    main()
+```
+
 ## 6. Testing Approach
 
 - **Always Add Tests**: Every new class or module must have corresponding test files
   - Place unit tests in `tests/unit/[module_name]/`
+  - Place script tests in `tests/unit/scripts/`
   - Name test files with `test_` prefix matching the file being tested 
   - Cover all public methods and edge cases
   - Target minimum 80% code coverage
@@ -126,5 +164,7 @@ def create_something(type_name, **kwargs):
 - Maintain the existing command-line argument structure
 - If adding new options, follow the same argparse pattern
 - Provide default values for new options
+- For scripts in `src/scripts/`, ensure consistent argument naming across different scripts
+- Document all command-line arguments in the script's docstring
 
 By following these guidelines, you'll help maintain the structural integrity and design philosophy of the project. 

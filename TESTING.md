@@ -37,6 +37,20 @@ This document outlines the testing requirements and best practices for the AITra
 - Unit tests go in `tests/unit/[module_name]/`
 - Integration tests go in `tests/integration/`
 - Test files should follow the naming convention: `test_[file_being_tested].py`
+- Script tests should be in `tests/unit/scripts/` to test functionality in `src/scripts/`
+
+## Script Testing
+
+Scripts in `src/scripts/` should be tested for:
+
+- Command-line argument parsing
+- Integration with other components
+- Proper error handling
+- Expected output formats
+
+Examples of script tests:
+- `test_train_and_backtest.py` for testing the training and backtesting script
+- `test_compare_models.py` for testing the model comparison functionality
 
 ## Test Naming Convention
 

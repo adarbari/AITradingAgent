@@ -15,6 +15,7 @@ The project follows a modular architecture with clear separation of concerns:
 - **Backtest Module** (`src/backtest/`): Provides backtesting functionality and performance evaluation.
 - **Agent Module** (`src/agent/`): Contains the trading environment implementation for reinforcement learning.
 - **Utils Module** (`src/utils/`): Contains utility functions and helpers.
+- **Scripts Module** (`src/scripts/`): Contains executable scripts for training, backtesting, and model comparison.
 
 ### 2. Interface-based Design
 
@@ -46,7 +47,6 @@ The system uses factory patterns to create appropriate implementations:
 
 ```
 AITradingAgent/
-├── train_and_backtest.py  # Main script
 ├── src/
 │   ├── agent/
 │   │   ├── __init__.py
@@ -66,6 +66,10 @@ AITradingAgent/
 │   │   ├── __init__.py
 │   │   ├── base_trainer.py
 │   │   └── trainer.py
+│   ├── scripts/
+│   │   ├── train_and_backtest.py
+│   │   ├── train_and_backtest_amzn.py
+│   │   └── compare_models.py
 │   └── utils/
 │       ├── __init__.py
 │       └── helpers.py
@@ -99,6 +103,12 @@ AITradingAgent/
 
 - `BaseTradingEnvironment`: Abstract interface for trading environments
 - `TradingEnvironment`: Implementation of a Gym environment for RL trading
+
+#### Scripts Module
+
+- `train_and_backtest.py`: Main script for training and backtesting models with various configuration options
+- `train_and_backtest_amzn.py`: Specialized script for training and backtesting AMZN stock
+- `compare_models.py`: Script to train and compare multiple model configurations
 
 ## Coding Conventions
 
@@ -142,9 +152,14 @@ When adding new functionality:
 4. **New Trading Environments**:
    - Create a new class implementing `BaseTradingEnvironment`
 
+5. **New Scripts**:
+   - Place new scripts in the `src/scripts` directory
+   - Follow the existing pattern for argument parsing and error handling
+   - Reuse existing components through proper imports
+
 ## Main Workflow
 
-The main workflow in `train_and_backtest.py`:
+The main workflow in the scripts:
 
 1. Parse command-line arguments
 2. Create a ModelTrainer instance
@@ -153,6 +168,19 @@ The main workflow in `train_and_backtest.py`:
 5. Backtest the trained models
 6. Compare performance against market benchmarks
 7. Generate and save performance metrics and visualizations
+
+### Script-Specific Workflows
+
+#### train_and_backtest.py
+- Generic script for training and backtesting any stock with configurable parameters
+
+#### train_and_backtest_amzn.py
+- Specialized script for Amazon (AMZN) stock with predefined parameters
+
+#### compare_models.py
+- Trains multiple model configurations with different parameters
+- Compares their performance using various metrics
+- Identifies the best performing models
 
 ## Future Considerations
 

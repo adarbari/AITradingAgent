@@ -3,6 +3,7 @@ Backtesting module for evaluating trading strategy performance.
 """
 import os
 import traceback
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -97,7 +98,31 @@ class Backtester(BaseBacktester):
         data = data_fetcher.add_technical_indicators(data)
         
         # Prepare data for the agent
-        prices, features = data_fetcher.prepare_data_for_agent(data)
+        result = data_fetcher.prepare_data_for_agent(data)
+        
+        # Handle different return types from prepare_data_for_agent
+        if isinstance(result, tuple) and len(result) == 2:
+            # SyntheticDataFetcher returns (prices, features)
+            prices, features = result
+        else:
+            # BaseDataFetcher returns just features, which may be windowed data
+            features = result
+            # If features length is less than original data, it's using windows
+            # Adjust prices to match the length of features
+            if len(features) < len(data):
+                window_size = 20  # Default window size
+                prices = data['Close'].values[window_size-1:]
+            else:
+                prices = data['Close'].values
+        
+        # Final check to ensure lengths match
+        if len(prices) != len(features):
+            print(f"Warning: Adjusting price data length from {len(prices)} to {len(features)} to match features")
+            if len(prices) > len(features):
+                prices = prices[-len(features):]
+            else:
+                # This should not happen, but just in case
+                features = features[-len(prices):]
         
         # Create the environment
         env = env_class(
@@ -110,11 +135,7 @@ class Backtester(BaseBacktester):
         # Reset the environment
         obs, _ = env.reset()
         
-        # Create dataframe to store results
-        dates = data.index[1:]  # Skip the first day as it's used for initial observation
-        returns_df = pd.DataFrame(index=dates)
-        returns_df.index.name = 'date'
-        
+        # We'll create the dataframe after collecting portfolio values
         done = False
         portfolio_values = []
         
@@ -129,6 +150,19 @@ class Backtester(BaseBacktester):
             
             # Store the portfolio value
             portfolio_values.append(info['portfolio_value'])
+        
+        # Get the dates corresponding to the environment steps
+        if len(portfolio_values) < len(data):
+            # If using windowed data, we need to adjust the dates
+            date_subset = data.iloc[len(data) - len(portfolio_values):]['Date']
+        else:
+            date_subset = data['Date']
+            
+        # Create a dataframe for returns analysis using only the dates
+        # that correspond to the portfolio values
+        returns_df = pd.DataFrame(index=range(len(portfolio_values)))
+        returns_df['Date'] = date_subset.values[-len(portfolio_values):]
+        returns_df.set_index('Date', inplace=True)
         
         # Store results in the dataframe
         returns_df['portfolio_value'] = portfolio_values
@@ -278,51 +312,98 @@ class Backtester(BaseBacktester):
         Save backtest results to a file.
         
         Args:
-            results (dict): Backtest results to save.
-            file_path (str): Path to save the results.
+            results (dict): Results from the backtest.
+            file_path (str): Path to save the results to.
             
         Returns:
             str: Path to the saved file.
         """
         import json
         
+        # Save the returns DataFrame to a separate CSV file
+        if 'returns' in results:
+            csv_path = file_path.replace('.json', '_returns.csv')
+            # Check if returns is a DataFrame or a list
+            if hasattr(results['returns'], 'to_csv'):
+                results['returns'].to_csv(csv_path)
+            else:
+                # Convert list to DataFrame
+                pd.DataFrame({'returns': results['returns']}).to_csv(csv_path)
+            print(f"Returns data saved to {csv_path}")
+        
         # Convert any non-serializable objects to serializable format
         serializable_results = {}
         for key, value in results.items():
             if key == 'returns':
-                # Convert DataFrame to dict
-                serializable_results[key] = value.to_dict() if hasattr(value, 'to_dict') else value
+                # Store the original returns in the serializable results if it's not a DataFrame
+                if not isinstance(value, pd.DataFrame):
+                    serializable_results[key] = value
+                # Also store the path to the CSV file
+                serializable_results[key + '_path'] = csv_path
+            elif key == 'model':
+                # Skip the model as it's not serializable
+                continue
+            elif isinstance(value, pd.DataFrame):
+                # Convert DataFrames to dictionaries for JSON serialization
+                serializable_results[key] = value.to_dict()
+            elif isinstance(value, np.ndarray):
+                # Convert numpy arrays to lists for JSON serialization
+                serializable_results[key] = value.tolist()
+            elif hasattr(value, 'tolist') and callable(getattr(value, 'tolist')):
+                # For other array-like objects that have a tolist method
+                serializable_results[key] = value.tolist()
             else:
-                serializable_results[key] = value
+                # Keep other values as is if they are serializable
+                try:
+                    # Test if the value is JSON serializable
+                    json.dumps(value)
+                    serializable_results[key] = value
+                except (TypeError, OverflowError):
+                    # If not serializable, convert to string representation
+                    serializable_results[key] = str(value)
         
         # Save to file
-        with open(file_path, 'w') as f:
-            json.dump(serializable_results, f, indent=4)
-        
-        print(f"Results saved to {file_path}")
-        return file_path
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(serializable_results, f, indent=4)
+            print(f"Results saved to {file_path}")
+            return file_path
+        except Exception as e:
+            print(f"Error saving results: {e}")
+            if self.verbose >= 1:
+                traceback.print_exc()
+            return None
     
     def load_results(self, file_path):
         """
         Load backtest results from a file.
         
         Args:
-            file_path (str): Path to the results file.
+            file_path (str): Path to the file.
             
         Returns:
-            dict: Loaded backtest results.
+            dict: Loaded results.
         """
         import json
         
-        # Load from file
-        with open(file_path, 'r') as f:
-            results = json.load(f)
-        
-        # Convert serialized DataFrames back to DataFrames if needed
-        if 'returns' in results and isinstance(results['returns'], dict):
-            try:
-                results['returns'] = pd.DataFrame.from_dict(results['returns'])
-            except Exception as e:
-                print(f"Warning: Could not convert 'returns' back to DataFrame: {e}")
-        
-        return results 
+        try:
+            with open(file_path, 'r') as f:
+                results = json.load(f)
+                
+            # Check if there's a returns path
+            returns_path = results.get('returns_path')
+            if returns_path and os.path.exists(returns_path):
+                # Load returns data from CSV
+                returns_df = pd.read_csv(returns_path, index_col=0)
+                
+                # Check if we have the 'returns' column or if it's the index
+                if 'returns' in returns_df.columns:
+                    results['returns'] = returns_df['returns'].values
+                else:
+                    # If format is different, take the first column
+                    results['returns'] = returns_df.iloc[:, 0].values
+                
+            return results
+        except Exception as e:
+            print(f"Error loading results: {e}")
+            return None 

@@ -16,12 +16,15 @@ This project implements a trading agent using reinforcement learning techniques,
 │   ├── agent               # Trading agent implementation
 │   ├── backtest            # Backtesting framework
 │   ├── data                # Data fetching and processing
-│   └── models              # ML models for trading
+│   ├── models              # ML models for trading
+│   └── scripts             # Execution scripts
+│       ├── train_and_backtest.py  # Train and backtest models
+│       └── compare_models.py      # Compare different model configurations
 ├── tests                   # Test files
 │   ├── unit                # Unit tests
 │   └── integration         # Integration tests
-├── scripts                 # Utility scripts
-└── models                  # Saved model files
+├── models                  # Saved model files
+└── results                 # Results from backtesting
 ```
 
 ## Features
@@ -31,6 +34,7 @@ This project implements a trading agent using reinforcement learning techniques,
 - Backtesting framework to evaluate strategy performance
 - Customizable model parameters
 - Visualization of trading performance
+- Model configuration comparison tools
 
 ## Getting Started
 
@@ -56,6 +60,24 @@ This project implements a trading agent using reinforcement learning techniques,
    ```
    python scripts/install_hooks.py
    ```
+
+## Usage
+
+### Training and Backtesting a Model
+
+To train a model on historical data and backtest it:
+
+```bash
+python src/scripts/train_and_backtest.py --train --backtest --symbol AMZN --train-start 2022-01-01 --train-end 2023-12-31 --test-start 2024-01-01 --test-end 2024-04-30
+```
+
+### Comparing Different Model Configurations
+
+To compare different model configurations and find the best one:
+
+```bash
+python src/scripts/compare_models.py --symbol AMZN --test-start 2024-01-01 --test-end 2024-04-30
+```
 
 ## Running Tests
 
