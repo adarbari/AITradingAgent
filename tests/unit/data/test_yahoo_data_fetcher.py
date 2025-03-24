@@ -56,7 +56,7 @@ class TestYahooDataFetcher:
         """Test fetcher initialization"""
         assert self.fetcher.cache_dir == 'tests/test_cache'
         assert self.fetcher.max_retries == 3
-        assert self.fetcher.retry_delay == 2
+        assert self.fetcher.retry_delay == 0.25
     
     @patch('yfinance.Ticker')
     def test_fetch_data_success(self, mock_ticker):
@@ -351,23 +351,24 @@ class TestYahooDataFetcher:
         """Test fetch_data_simple error handling"""
         # Mock yfinance.download to fail
         mock_download.side_effect = Exception("Download Error")
-        
+    
         # Call fetch_data_simple
         result = self.fetcher.fetch_data_simple(
             symbol=self.symbol,
             start_date=self.start_date,
             end_date=self.end_date
         )
-        
-        # Check that yfinance.download was called
-        mock_download.assert_called_once_with(
+    
+        # Check that yfinance.download was called at least once with correct parameters
+        # This accounts for the retry logic
+        mock_download.assert_called_with(
             self.symbol,
             start=self.start_date,
             end=self.end_date,
             progress=False
         )
         
-        # Check that None is returned on error
+        # Verify the error was handled and None was returned
         assert result is None
 
     @patch('yfinance.download')
@@ -382,19 +383,25 @@ class TestYahooDataFetcher:
             # Missing 'Close' column
             'Volume': np.random.randint(1000000, 10000000, len(self.sample_dates))
         }).set_index('Date')
-        
+    
         # Mock yfinance.download
         mock_download.return_value = incomplete_data
-        
+    
         # Call fetch_data_simple
         result = self.fetcher.fetch_data_simple(
             symbol=self.symbol,
             start_date=self.start_date,
             end_date=self.end_date
         )
+    
+        # Check that yfinance.download was called at least once
+        assert mock_download.call_count > 0
+        mock_download.assert_called_with(
+            self.symbol,
+            start=self.start_date,
+            end=self.end_date,
+            progress=False
+        )
         
-        # Check that yfinance.download was called
-        mock_download.assert_called_once()
-        
-        # Check that None is returned due to missing column
+        # Check result is None due to missing required column
         assert result is None 
