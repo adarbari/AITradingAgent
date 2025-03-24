@@ -1,6 +1,7 @@
 # AI Trading Agent
 
 [![Tests](https://github.com/adarbari/AITradingAgent/actions/workflows/tests.yml/badge.svg)](https://github.com/adarbari/AITradingAgent/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/adarbari/AITradingAgent/branch/main/graph/badge.svg)](https://codecov.io/gh/adarbari/AITradingAgent)
 
 An artificial intelligence trading agent that uses reinforcement learning to trade financial assets.
 
