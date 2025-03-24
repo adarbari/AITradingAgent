@@ -4,6 +4,35 @@ Utilities for feature preparation and data handling.
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import warnings
+import sys
+import os
+
+# Add parent directory to path if necessary
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# Import feature engineering module
+try:
+    from src.feature_engineering import process_features, FeatureRegistry
+    from src.feature_engineering.pipeline import FeaturePipeline
+    from src.feature_engineering.cache import FeatureCache
+    
+    # Import all feature categories to ensure they are registered
+    from src.feature_engineering.features import (
+        price_features, 
+        trend_features, 
+        volatility_features, 
+        momentum_features, 
+        volume_features,
+        seasonal_features
+    )
+    
+    _HAS_FEATURE_ENGINEERING = True
+except ImportError:
+    warnings.warn("Feature engineering module not found. Using legacy feature preparation.")
+    _HAS_FEATURE_ENGINEERING = False
 
 
 def prepare_features_from_indicators(features_df, expected_feature_count=21, verbose=False):
@@ -19,6 +48,30 @@ def prepare_features_from_indicators(features_df, expected_feature_count=21, ver
     Returns:
         pd.DataFrame: Processed features DataFrame
     """
+    # If we have the feature engineering module, use it
+    if _HAS_FEATURE_ENGINEERING:
+        # Create a feature pipeline manually to handle the pre-computed features
+        pipeline = FeaturePipeline(
+            feature_list=list(features_df.columns), 
+            feature_count=expected_feature_count,
+            verbose=verbose
+        )
+        
+        # Skip feature generation and just do normalization and cleanup
+        features = features_df.copy()
+        
+        if pipeline.normalize:
+            features = pipeline._normalize_features(features)
+        
+        # Handle feature count
+        features = pipeline._handle_feature_count(features)
+        
+        # Final checks and cleanup
+        features = pipeline._final_cleanup(features)
+        
+        return features
+    
+    # Legacy implementation
     features = features_df.copy()
     
     # First, ensure that all columns are numeric
@@ -89,7 +142,30 @@ def prepare_robust_features(data, feature_count=21, verbose=False):
     Returns:
         np.array: Processed features with shape (n_samples, feature_count)
     """
-    # Calculate technical indicators with robust error handling
+    # If we have the feature engineering module, use it
+    if _HAS_FEATURE_ENGINEERING:
+        if verbose:
+            print("Using new feature engineering pipeline")
+        
+        # Use standard feature set
+        pipeline = FeaturePipeline(
+            feature_list=None,  # Use default from config
+            feature_count=feature_count,
+            verbose=verbose
+        )
+        
+        # Process features using the pipeline
+        features_df = pipeline.process(data)
+        
+        # Convert to numpy array if needed
+        if isinstance(features_df, pd.DataFrame):
+            return features_df.values
+        return features_df
+    
+    # Legacy implementation - Calculate technical indicators with robust error handling
+    if verbose:
+        print("Using legacy feature engineering")
+        
     features = []
     
     # Price data

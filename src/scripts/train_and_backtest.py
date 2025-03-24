@@ -22,7 +22,17 @@ from src.models import ModelTrainer
 from src.backtest import Backtester
 from src.agent.trading_env import TradingEnvironment
 from src.train.trainer import TrainingManager
-from src.utils.feature_utils import prepare_robust_features
+from src.utils.feature_utils import prepare_robust_features, prepare_features_from_indicators, get_data
+
+# Import feature engineering module
+try:
+    from src.feature_engineering import process_features, FeatureRegistry, FEATURE_CONFIGS
+    from src.feature_engineering.pipeline import FeaturePipeline
+    from src.feature_engineering.cache import FeatureCache
+    FEATURE_ENGINEERING_AVAILABLE = True
+except ImportError:
+    print("Warning: Feature engineering module not available, falling back to legacy implementation")
+    FEATURE_ENGINEERING_AVAILABLE = False
 
 def calculate_max_drawdown(portfolio_values):
     """
@@ -47,7 +57,8 @@ def calculate_max_drawdown(portfolio_values):
 def train_model(symbol, train_start, train_end, model_path=None, 
                 timesteps=100000, feature_count=21, data_source="yahoo",
                 trading_env_class=TradingEnvironment, verbose=1,
-                save_model=True, synthetic_params=None, force_retrain=False):
+                save_model=True, synthetic_params=None, force_retrain=False,
+                feature_set="standard"):
     """
     Train a trading agent on historical data.
     
@@ -64,6 +75,7 @@ def train_model(symbol, train_start, train_end, model_path=None,
         save_model (bool): Whether to save the model
         synthetic_params (dict): Parameters for synthetic data generation
         force_retrain (bool): Force retraining even if cached model exists
+        feature_set (str): Feature set configuration to use
     
     Returns:
         tuple: (trained_model, model_path)
@@ -73,6 +85,40 @@ def train_model(symbol, train_start, train_end, model_path=None,
     # Create models directory if needed
     models_dir = os.path.dirname(model_path) if model_path else "models"
     os.makedirs(models_dir, exist_ok=True)
+    
+    # Fetch training data
+    data = get_data(symbol, train_start, train_end, data_source, synthetic_params)
+    if data is None or len(data) == 0:
+        print(f"Error: No data available for {symbol} from {train_start} to {train_end}")
+        return None, None
+    
+    print(f"Fetched {len(data)} days of data for training")
+    
+    # Generate features using the new feature engineering module if available
+    if FEATURE_ENGINEERING_AVAILABLE:
+        print(f"Using feature engineering module with feature set: {feature_set}")
+        # Initialize feature cache
+        cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=verbose > 0)
+        cache_key = cache.get_cache_key(symbol, train_start, train_end, feature_set)
+        
+        # Check if features are cached
+        cached_features = cache.load(cache_key)
+        if cached_features is not None and not force_retrain:
+            print("Using cached features")
+            features = cached_features
+        else:
+            print("Computing features from data")
+            features = process_features(data, feature_set=feature_set, verbose=verbose > 0)
+            cache.save(features, cache_key)
+    else:
+        # Fallback to legacy feature preparation
+        print("Using legacy feature preparation")
+        indicators = data.drop(['Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits'], 
+                               axis=1, errors='ignore')
+        features = prepare_features_from_indicators(indicators, expected_feature_count=feature_count, 
+                                                   verbose=verbose > 0)
+    
+    print(f"Prepared {len(features)} data points with {len(features.columns)} features for training")
     
     # Use the TrainingManager to get the model (will use cache if available)
     training_manager = TrainingManager(models_dir=models_dir, verbose=verbose)
@@ -85,17 +131,53 @@ def train_model(symbol, train_start, train_end, model_path=None,
         symbol=symbol,
         train_start=train_start,
         train_end=train_end,
-        feature_count=feature_count,
+        feature_count=len(features.columns),
         data_source=data_source,
         timesteps=timesteps,
         force_train=force_retrain,
         synthetic_params=synthetic_params,
-        model_params=model_params
+        model_params=model_params,
+        features=features,
+        prices=data['Close'].values
     )
     
     return model, path
 
-def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'):
+def fetch_and_prepare_data(symbol, start_date, end_date, data_source='yahoo', min_data_points=5):
+    """
+    Fetch and prepare data for training or backtesting.
+    Handles error cases and ensures minimum data requirements.
+    
+    Args:
+        symbol (str): Stock symbol
+        start_date (str): Start date (YYYY-MM-DD)
+        end_date (str): End date (YYYY-MM-DD)
+        data_source (str): Source for data ('yahoo' or 'synthetic')
+        min_data_points (int): Minimum number of data points required
+        
+    Returns:
+        pd.DataFrame: Prepared data with technical indicators
+    """
+    # Use the centralized get_data function from feature_utils
+    data = get_data(symbol, start_date, end_date, data_source)
+    
+    # Ensure we have at least the minimum data points
+    if data is None or len(data) < min_data_points:
+        print(f"Warning: Not enough data points ({len(data) if data is not None else 0}). At least {min_data_points} are required.")
+        print("Generating additional synthetic data to supplement...")
+        
+        # Generate more synthetic data by extending the date range
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        extended_end = start_dt + timedelta(days=30)  # Always ensure at least a month of data
+        extended_end_str = extended_end.strftime("%Y-%m-%d")
+            
+        # Get synthetic data with extended range
+        data = get_data(symbol, start_date, extended_end_str, data_source="synthetic")
+        print(f"Using {len(data)} data points for analysis.")
+    
+    return data
+
+def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo', feature_set="standard"):
     """
     Backtest a trained model on test data
     
@@ -111,6 +193,8 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
         End date for test data (YYYY-MM-DD)
     data_source: str
         Source for data fetching ('yahoo' or 'synthetic')
+    feature_set: str
+        Feature set configuration to use
     
     Returns:
     --------
@@ -121,113 +205,34 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
     
     print(f"Backtesting model from {test_start} to {test_end}")
     
-    # Fetch test data
-    print(f"Fetching test data for {symbol}...")
-    try:
-        data_fetcher = DataFetcherFactory.create_data_fetcher(data_source)
-        test_data = data_fetcher.fetch_data(symbol, test_start, test_end)
-        test_data = data_fetcher.add_technical_indicators(test_data)
-        print(f"Fetched {len(test_data)} days of {data_source} data")
-    except Exception as e:
-        print(f"Error fetching data from {data_source}: {e}")
-        print("Falling back to synthetic data...")
-        data_fetcher = DataFetcherFactory.create_data_fetcher('synthetic')
-        test_data = data_fetcher.fetch_data(symbol, test_start, test_end)
-        test_data = data_fetcher.add_technical_indicators(test_data)
+    # Fetch and prepare test data
+    test_data = fetch_and_prepare_data(symbol, test_start, test_end, data_source)
     
-    # Ensure we have at least 5 data points for a meaningful backtest
-    if len(test_data) < 5:
-        print(f"Warning: Not enough data points ({len(test_data)}) for meaningful backtest. At least 5 are required.")
-        print("Generating additional synthetic data to supplement...")
+    # Generate features using the new feature engineering module if available
+    if FEATURE_ENGINEERING_AVAILABLE:
+        print(f"Using feature engineering module with feature set: {feature_set}")
+        # Initialize feature cache
+        cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=True)
+        cache_key = cache.get_cache_key(symbol, test_start, test_end, feature_set)
         
-        # Generate more synthetic data by extending the date range
-        from datetime import datetime, timedelta
-        
-        # Calculate new date range for synthetic data
-        start_date = datetime.strptime(test_start, "%Y-%m-%d")
-        extended_end = start_date + timedelta(days=30)  # Always ensure at least a month of data
-        extended_end_str = extended_end.strftime("%Y-%m-%d")
-            
-        # Get synthetic data with extended range
-        synthetic_fetcher = DataFetcherFactory.create_data_fetcher('synthetic')
-        synthetic_data = synthetic_fetcher.fetch_data(symbol, test_start, extended_end_str)
-        
-        # If we still don't have enough data, create some artificial price data
-        if len(synthetic_data) < 5:
-            print("Still insufficient data, creating artificial price series...")
-            # Create a DataFrame with a date range
-            dates = pd.date_range(start=start_date, periods=30, freq='D')
-            initial_price = 100.0  # Starting price
-            
-            # Generate random price movements (simple random walk)
-            np.random.seed(42)  # For reproducibility
-            price_changes = np.random.normal(0, 0.02, size=len(dates))
-            price_factors = 1 + np.cumsum(price_changes)
-            prices = initial_price * price_factors
-            
-            # Create DataFrame
-            synthetic_data = pd.DataFrame({
-                'Open': prices * 0.99,
-                'High': prices * 1.02,
-                'Low': prices * 0.98,
-                'Close': prices,
-                'Volume': np.random.randint(1000000, 5000000, size=len(dates))
-            }, index=dates)
-            
-            print(f"Created {len(synthetic_data)} days of artificial data")
-            
-        synthetic_data = synthetic_fetcher.add_technical_indicators(synthetic_data)
-        test_data = synthetic_data
-        print(f"Using {len(test_data)} data points for testing.")
-    
-    # Prepare test data for model
-    features = test_data.drop(['Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits'], axis=1, errors='ignore')
-    
-    # First, ensure that all columns are numeric
-    for col in features.columns:
-        if not pd.api.types.is_numeric_dtype(features[col]):
-            if pd.api.types.is_datetime64_any_dtype(features[col]):
-                print(f"Converting datetime column {col} to numeric timestamp")
-                features[col] = features[col].astype(np.int64) // 10**9  # Convert to Unix timestamp seconds
-            else:
-                print(f"Converting non-numeric column {col} to numeric values")
-                try:
-                    features[col] = pd.to_numeric(features[col], errors='coerce')
-                except:
-                    print(f"Could not convert column {col} to numeric, dropping it")
-                    features = features.drop(columns=[col])
-    
-    # Handle NaN values and normalize features
-    features = features.fillna(0)  # Replace NaN with zeros
-    
-    # Apply simple normalization to avoid extreme values
-    for col in features.columns:
-        if features[col].std() > 0:
-            features[col] = (features[col] - features[col].mean()) / features[col].std()
+        # Check if features are cached
+        cached_features = cache.load(cache_key)
+        if cached_features is not None:
+            print("Using cached features")
+            features = cached_features
         else:
-            features[col] = 0  # If std is 0, set all values to 0
-    
-    # Ensure we have the expected number of features (21 by default)
-    expected_feature_count = 21
-    
-    if len(features.columns) < expected_feature_count:
-        print(f"Warning: Model expects {expected_feature_count} features but only {len(features.columns)} are available.")
-        print("Adding dummy features to match the expected count...")
-        
-        # Add missing features with zeros
-        for i in range(len(features.columns), expected_feature_count):
-            feature_name = f"dummy_feature_{i}"
-            features[feature_name] = 0.0
-    
-    elif len(features.columns) > expected_feature_count:
-        print(f"Warning: More features than expected ({len(features.columns)} vs {expected_feature_count}).")
-        print("Keeping only the first 21 features...")
-        features = features.iloc[:, :expected_feature_count]
-    
-    # Final check for NaN or infinite values
-    if np.isnan(features.values).any() or np.isinf(features.values).any():
-        print("Warning: NaN or infinite values detected after processing. Replacing with zeros.")
-        features = features.replace([np.inf, -np.inf, np.nan], 0)
+            print("Computing features from data")
+            features = process_features(test_data, feature_set=feature_set, verbose=True)
+            cache.save(features, cache_key)
+    else:
+        # Fallback to legacy feature preparation
+        print("Using legacy feature preparation")
+        features_df = test_data.drop(['Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits'], 
+                                  axis=1, errors='ignore')
+        # Use the centralized feature preparation function
+        expected_feature_count = 21
+        features = prepare_features_from_indicators(features_df, expected_feature_count=expected_feature_count, 
+                                                verbose=True)
     
     print(f"Prepared {len(features)} data points with {len(features.columns)} features for testing")
     
@@ -348,6 +353,8 @@ def main():
                        help="Source of data (default: yahoo)")
     parser.add_argument("--feature-count", type=int, default=21,
                        help="Number of features to use (default: 21)")
+    parser.add_argument("--feature-set", type=str, default="standard",
+                       help="Feature set configuration to use (default: standard)")
     
     # Training arguments
     parser.add_argument("--train", action="store_true",
@@ -426,22 +433,24 @@ def main():
             feature_count=args.feature_count,
             data_source=args.data_source,
             synthetic_params=synthetic_params,
-            force_retrain=args.force
+            force_retrain=args.force,
+            feature_set=args.feature_set
         )
     
     # Backtest model if requested
     if args.backtest:
-        if not args.train and not args.model_path:
-            print("Error: You must provide a model path or train a model first")
+        if not args.train and not os.path.exists(args.model_path):
+            print(f"Error: Model file {args.model_path} does not exist. Train a model first or provide a valid model path.")
             return
         
-        model_path = args.model_path or path
+        model_path = args.model_path
         results = backtest_model(
             model_path=model_path,
             symbol=args.symbol,
             test_start=args.test_start,
             test_end=args.test_end,
-            data_source=args.data_source
+            data_source=args.data_source,
+            feature_set=args.feature_set
         )
         
         if results and not results.get('error'):
