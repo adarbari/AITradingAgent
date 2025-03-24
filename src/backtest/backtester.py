@@ -266,7 +266,12 @@ class Backtester(BaseBacktester):
 
         # Save returns DataFrame separately
         returns_csv_path = file_path.replace('.json', '_returns.csv')
-        results['returns'].to_csv(returns_csv_path)
+        if isinstance(results['returns'], list):
+            # Convert list to DataFrame if needed
+            returns_df = pd.DataFrame({'returns': results['returns']})
+        else:
+            returns_df = results['returns']
+        returns_df.to_csv(returns_csv_path)
 
         # Convert benchmark DataFrames to CSV
         for name, benchmark in results['benchmark_results'].items():
@@ -307,7 +312,10 @@ class Backtester(BaseBacktester):
             'total_return': json_results['total_return'],
             'sharpe_ratio': json_results['sharpe_ratio'],
             'max_drawdown': json_results['max_drawdown'],
-            'benchmark_results': {}
+            'benchmark_results': {},
+            # Reconstruct portfolio_values and actions for backwards compatibility
+            'portfolio_values': [json_results['initial_value'], json_results['final_value']],
+            'actions': []  # Empty list as we don't save actions
         }
 
         # Load benchmark results

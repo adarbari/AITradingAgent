@@ -92,7 +92,8 @@ class TestTradingPipeline:
             'returns': [0, 0.005, 0.01],
             'total_return': 0.01,
             'sharpe_ratio': 1.5,
-            'max_drawdown': 0.05
+            'max_drawdown': 0.05,
+            'benchmark_results': {}  # Add empty benchmark results
         }
         
         # Mock the backtest_model method
@@ -122,7 +123,12 @@ class TestTradingPipeline:
         loaded_results = backtester.load_results(backtest_path)
         assert 'portfolio_values' in loaded_results
         assert 'actions' in loaded_results
-        assert 'returns' in loaded_results
+        assert isinstance(loaded_results['returns'], pd.DataFrame)
+        
+        # Restored values should match
+        assert loaded_results['initial_value'] == mock_results['portfolio_values'][0]
+        assert loaded_results['final_value'] == mock_results['portfolio_values'][-1]
+        assert loaded_results['total_return'] == mock_results['total_return']
         
         # Restore original method
         backtester.backtest_model = orig_backtest_model
