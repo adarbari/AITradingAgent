@@ -113,7 +113,8 @@ def train_model(symbol, train_start, train_end, model_path=None,
     # Create model parameters dictionary
     model_params = None  # Default to None for now
     
-    # Get or train the model
+    # Get or train the model - don't pass features and prices directly
+    # TrainingManager will handle data fetching and preparation internally
     model, path = training_manager.get_model(
         symbol=symbol,
         train_start=train_start,
@@ -123,9 +124,7 @@ def train_model(symbol, train_start, train_end, model_path=None,
         timesteps=timesteps,
         force_train=force_retrain,
         synthetic_params=synthetic_params,
-        model_params=model_params,
-        features=features,
-        prices=data['Close'].values
+        model_params=model_params
     )
     
     return model, path

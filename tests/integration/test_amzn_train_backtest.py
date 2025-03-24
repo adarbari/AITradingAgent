@@ -38,7 +38,7 @@ class TestAMZNTrainBacktest:
         os.makedirs(models_dir, exist_ok=True)
         os.makedirs(results_dir, exist_ok=True)
         
-        model_name = f"ppo_{symbol}_2023_2024_test"
+        model_name = f"ppo_{symbol}_{train_start.split('-')[0]}_{train_end.split('-')[0]}"
         model_path = os.path.join(models_dir, model_name)
         
         try:
@@ -60,6 +60,16 @@ class TestAMZNTrainBacktest:
             train_result = subprocess.run(train_cmd, capture_output=True, text=True)
             assert train_result.returncode == 0, f"Training failed with exit code {train_result.returncode}:\n{train_result.stderr}"
             
+            print(f"Training output: {train_result.stdout}")
+            
+            # Find the actual model file (which will have a hash added to the name)
+            model_files = list(Path(models_dir).glob(f"ppo_{symbol}_*.zip"))
+            assert len(model_files) > 0, f"No model file found for {symbol}"
+            
+            # Use the most recent model file
+            actual_model_path = str(max(model_files, key=lambda x: x.stat().st_mtime))
+            print(f"Using model: {actual_model_path}")
+            
             # Run backtest command
             backtest_cmd = [
                 "python", "src/scripts/train_and_backtest.py",
@@ -67,7 +77,7 @@ class TestAMZNTrainBacktest:
                 "--backtest",
                 "--test-start", test_start,
                 "--test-end", test_end,
-                "--model-path", model_path,
+                "--model-path", actual_model_path,
                 "--models-dir", models_dir,
                 "--results-dir", results_dir,
                 "--feature-set", "standard"
@@ -77,14 +87,26 @@ class TestAMZNTrainBacktest:
             backtest_result = subprocess.run(backtest_cmd, capture_output=True, text=True)
             assert backtest_result.returncode == 0, f"Backtesting failed with exit code {backtest_result.returncode}:\n{backtest_result.stderr}"
             
-            # Check results file
-            results_pattern = f"{results_dir}/{symbol}_backtest_results.json"
-            results_files = list(Path(".").glob(results_pattern))
+            print(f"Backtest output: {backtest_result.stdout}")
             
-            assert len(results_files) > 0, f"No results file found matching pattern: {results_pattern}"
+            # Make sure results directory exists for this symbol
+            symbol_results_dir = Path(f"{results_dir}/{symbol}")
+            os.makedirs(symbol_results_dir, exist_ok=True)
+            
+            # Check results directory for the most recent backtest results
+            results_files = list(symbol_results_dir.glob("backtest_*.json"))
+            
+            if not results_files:
+                # Try fallback to check for other result file patterns
+                results_files = list(Path(results_dir).glob(f"*{symbol}*backtest*.json"))
+            
+            assert len(results_files) > 0, "No backtest results file found"
+            
+            # Get the most recent results file
+            latest_results_file = max(results_files, key=lambda x: x.stat().st_mtime)
             
             # Load and validate the results
-            with open(results_files[0], 'r') as f:
+            with open(latest_results_file, 'r') as f:
                 results = json.load(f)
             
             assert results["symbol"] == symbol, f"Wrong symbol in results: {results['symbol']}"
