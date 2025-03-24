@@ -11,40 +11,47 @@ from ..registry import FeatureRegistry
 
 
 @FeatureRegistry.register(name="rsi_14", category="momentum")
-def calculate_rsi_14(data: pd.DataFrame) -> pd.Series:
+def calculate_rsi(data: pd.DataFrame, window: int = 14) -> pd.Series:
     """
-    Calculate the 14-day Relative Strength Index (RSI).
+    Calculate the Relative Strength Index (RSI).
     
     Args:
         data (pd.DataFrame): OHLCV data
+        window (int): Window size for RSI calculation
         
     Returns:
-        pd.Series: RSI values (0-100 range, normalized to 0-1)
+        pd.Series: RSI values (normalized to 0-1 range)
     """
     close = data['Close'].values
-    period = 14
-    
-    # Calculate price changes
-    delta = pd.Series(close).diff().fillna(0)
+    delta = np.diff(close, prepend=close[0])
     
     # Separate gains and losses
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gains = np.maximum(delta, 0)
+    losses = np.maximum(-delta, 0)
     
-    # Calculate average gain and loss
-    avg_gain = gain.rolling(window=period).mean().fillna(0)
-    avg_loss = loss.rolling(window=period).mean().fillna(0)
+    # Initialize arrays for avg_gain and avg_loss
+    avg_gain = np.zeros_like(close)
+    avg_loss = np.zeros_like(close)
     
-    # Calculate RS (Relative Strength)
-    rs = np.where(avg_loss < 1e-8, 100, avg_gain / np.maximum(avg_loss, 1e-8))
+    # Calculate first average
+    if len(gains) >= window:
+        avg_gain[window-1] = np.mean(gains[:window])
+        avg_loss[window-1] = np.mean(losses[:window])
     
-    # Calculate RSI
-    rsi = 100 - (100 / (1 + rs))
+    # Calculate remaining averages using smoothing
+    for i in range(window, len(close)):
+        avg_gain[i] = (avg_gain[i-1] * (window-1) + gains[i]) / window
+        avg_loss[i] = (avg_loss[i-1] * (window-1) + losses[i]) / window
     
-    # Normalize to 0-1 range
-    rsi_normalized = rsi / 100.0
+    # Calculate RS and RSI
+    rs = np.divide(avg_gain, np.maximum(avg_loss, 1e-8))
+    rsi = 1.0 - (1.0 / (1.0 + rs))
     
-    result = np.nan_to_num(rsi_normalized, nan=0.5)  # Default to middle value if NaN
+    # Fill initial values
+    rsi[:window-1] = 0.5  # Neutral value for initial points
+    
+    # Replace NaNs and Infs with 0.5 (neutral value)
+    result = np.nan_to_num(rsi, nan=0.5, posinf=1.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
 
@@ -87,84 +94,130 @@ def calculate_rsi_2(data: pd.DataFrame) -> pd.Series:
 
 
 @FeatureRegistry.register(name="macd", category="momentum")
-def calculate_macd(data: pd.DataFrame) -> pd.Series:
+def calculate_macd(data: pd.DataFrame, 
+                   fast_period: int = 12, 
+                   slow_period: int = 26) -> pd.Series:
     """
-    Calculate the MACD (Moving Average Convergence Divergence) line.
+    Calculate the Moving Average Convergence Divergence (MACD) line.
     
     Args:
         data (pd.DataFrame): OHLCV data
+        fast_period (int): Period for the fast EMA
+        slow_period (int): Period for the slow EMA
         
     Returns:
-        pd.Series: MACD line values (normalized by price)
+        pd.Series: MACD line values normalized by price
     """
-    close = data['Close'].values
+    # Calculate EMAs directly using pandas to preserve Series attributes
+    close = data['Close']
+    ema_fast = close.ewm(span=fast_period, adjust=False).mean()
+    ema_slow = close.ewm(span=slow_period, adjust=False).mean()
     
-    # Calculate EMAs
-    ema12 = pd.Series(close).ewm(span=12, adjust=False).mean()
-    ema26 = pd.Series(close).ewm(span=26, adjust=False).mean()
+    # Calculate MACD line and normalize by price
+    macd_line = (ema_fast - ema_slow) / close
     
-    # Calculate MACD line
-    macd_line = ema12 - ema26
-    
-    # Normalize by price
-    macd_normalized = macd_line / np.maximum(close, 1e-8)
-    
-    result = np.nan_to_num(macd_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
-    return pd.Series(result, index=data.index)
+    return macd_line  # Return directly to preserve Series name
 
 
 @FeatureRegistry.register(name="macd_signal", category="momentum")
-def calculate_macd_signal(data: pd.DataFrame) -> pd.Series:
+def calculate_macd_signal(data: pd.DataFrame, 
+                         fast_period: int = 12, 
+                         slow_period: int = 26,
+                         signal_period: int = 9) -> pd.Series:
     """
-    Calculate the MACD signal line (9-day EMA of MACD line).
+    Calculate the MACD signal line.
     
     Args:
         data (pd.DataFrame): OHLCV data
+        fast_period (int): Period for the fast EMA
+        slow_period (int): Period for the slow EMA
+        signal_period (int): Period for the signal line
         
     Returns:
-        pd.Series: MACD signal line values (normalized by price)
+        pd.Series: MACD signal line values normalized by price
     """
     close = data['Close'].values
     
-    # Calculate EMAs
-    ema12 = pd.Series(close).ewm(span=12, adjust=False).mean()
-    ema26 = pd.Series(close).ewm(span=26, adjust=False).mean()
+    # Calculate fast and slow EMAs
+    fast_alpha = 2 / (fast_period + 1)
+    slow_alpha = 2 / (slow_period + 1)
+    
+    ema_fast = np.zeros_like(close)
+    ema_slow = np.zeros_like(close)
+    
+    # Calculate first value
+    ema_fast[0] = close[0]
+    ema_slow[0] = close[0]
+    
+    # Calculate EMA values
+    for i in range(1, len(close)):
+        ema_fast[i] = close[i] * fast_alpha + ema_fast[i-1] * (1 - fast_alpha)
+        ema_slow[i] = close[i] * slow_alpha + ema_slow[i-1] * (1 - slow_alpha)
     
     # Calculate MACD line
-    macd_line = ema12 - ema26
+    macd_line = ema_fast - ema_slow
     
-    # Calculate signal line (9-day EMA of MACD line)
-    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    # Calculate signal line (EMA of MACD line)
+    signal_alpha = 2 / (signal_period + 1)
+    signal_line = np.zeros_like(close)
+    signal_line[0] = macd_line[0]
+    
+    for i in range(1, len(macd_line)):
+        signal_line[i] = macd_line[i] * signal_alpha + signal_line[i-1] * (1 - signal_alpha)
     
     # Normalize by price
     signal_normalized = signal_line / np.maximum(close, 1e-8)
     
-    result = np.nan_to_num(signal_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    # Replace NaNs and Infs with zeros
+    result = np.nan_to_num(signal_normalized, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="macd_histogram", category="momentum")
-def calculate_macd_histogram(data: pd.DataFrame) -> pd.Series:
+def calculate_macd_histogram(data: pd.DataFrame, 
+                            fast_period: int = 12, 
+                            slow_period: int = 26,
+                            signal_period: int = 9) -> pd.Series:
     """
-    Calculate the MACD histogram (MACD line - Signal line).
+    Calculate the MACD histogram (difference between MACD line and signal line).
     
     Args:
         data (pd.DataFrame): OHLCV data
+        fast_period (int): Period for the fast EMA
+        slow_period (int): Period for the slow EMA
+        signal_period (int): Period for the signal line
         
     Returns:
-        pd.Series: MACD histogram values (normalized by price)
+        pd.Series: MACD histogram values normalized by price
     """
     close = data['Close'].values
     
-    # Calculate EMAs
-    ema12 = pd.Series(close).ewm(span=12, adjust=False).mean()
-    ema26 = pd.Series(close).ewm(span=26, adjust=False).mean()
+    # Calculate fast and slow EMAs
+    fast_alpha = 2 / (fast_period + 1)
+    slow_alpha = 2 / (slow_period + 1)
+    
+    ema_fast = np.zeros_like(close)
+    ema_slow = np.zeros_like(close)
+    
+    # Calculate first value
+    ema_fast[0] = close[0]
+    ema_slow[0] = close[0]
+    
+    # Calculate EMA values
+    for i in range(1, len(close)):
+        ema_fast[i] = close[i] * fast_alpha + ema_fast[i-1] * (1 - fast_alpha)
+        ema_slow[i] = close[i] * slow_alpha + ema_slow[i-1] * (1 - slow_alpha)
     
     # Calculate MACD line
-    macd_line = ema12 - ema26
+    macd_line = ema_fast - ema_slow
     
-    # Calculate signal line (9-day EMA of MACD line)
-    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    # Calculate signal line (EMA of MACD line)
+    signal_alpha = 2 / (signal_period + 1)
+    signal_line = np.zeros_like(close)
+    signal_line[0] = macd_line[0]
+    
+    for i in range(1, len(macd_line)):
+        signal_line[i] = macd_line[i] * signal_alpha + signal_line[i-1] * (1 - signal_alpha)
     
     # Calculate histogram
     histogram = macd_line - signal_line
@@ -172,7 +225,8 @@ def calculate_macd_histogram(data: pd.DataFrame) -> pd.Series:
     # Normalize by price
     histogram_normalized = histogram / np.maximum(close, 1e-8)
     
-    result = np.nan_to_num(histogram_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    # Replace NaNs and Infs with zeros
+    result = np.nan_to_num(histogram_normalized, nan=0.0, posinf=0.0, neginf=0.0)
     return pd.Series(result, index=data.index)
 
 
@@ -198,35 +252,73 @@ def calculate_momentum_5(data: pd.DataFrame) -> pd.Series:
 
 
 @FeatureRegistry.register(name="stoch_k", category="momentum")
-def calculate_stochastic_k(data: pd.DataFrame, window: int = 14) -> pd.Series:
+def calculate_stochastic_k(data: pd.DataFrame, 
+                          window: int = 14) -> pd.Series:
     """
     Calculate the Stochastic Oscillator %K.
     
     Args:
         data (pd.DataFrame): OHLCV data
-        window (int): Window size for calculation
+        window (int): Window size for stochastic calculation
         
     Returns:
-        pd.Series: Stochastic %K values (0-1 range)
+        pd.Series: %K values normalized to 0-1 range
     """
     high = data['High'].values
     low = data['Low'].values
     close = data['Close'].values
     
-    # Convert to Series for rolling operations
-    high_s = pd.Series(high)
-    low_s = pd.Series(low)
-    close_s = pd.Series(close)
+    # Calculate rolling highest high and lowest low
+    highest_high = np.zeros_like(close)
+    lowest_low = np.zeros_like(close)
     
-    # Calculate highest high and lowest low over window
-    highest_high = high_s.rolling(window=window).max().fillna(high_s)
-    lowest_low = low_s.rolling(window=window).min().fillna(low_s)
+    for i in range(len(close)):
+        if i < window:
+            # Use available data for first few points
+            highest_high[i] = np.max(high[0:i+1])
+            lowest_low[i] = np.min(low[0:i+1])
+        else:
+            # Use full window for later points
+            highest_high[i] = np.max(high[i-window+1:i+1])
+            lowest_low[i] = np.min(low[i-window+1:i+1])
     
     # Calculate %K
-    k = 100 * (close_s - lowest_low) / np.maximum(highest_high - lowest_low, 1e-8)
+    k_values = (close - lowest_low) / np.maximum(highest_high - lowest_low, 1e-8)
     
-    # Normalize to 0-1 range
-    k_normalized = k / 100.0
+    # Replace NaNs and Infs with 0.5 (neutral value)
+    result = np.nan_to_num(k_values, nan=0.5, posinf=1.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
+
+
+@FeatureRegistry.register(name="stoch_d", category="momentum")
+def calculate_stochastic_d(data: pd.DataFrame, 
+                          k_window: int = 14,
+                          d_window: int = 3) -> pd.Series:
+    """
+    Calculate the Stochastic Oscillator %D.
     
-    result = np.nan_to_num(k_normalized.values, nan=0.5)  # Default to middle if NaN
+    Args:
+        data (pd.DataFrame): OHLCV data
+        k_window (int): Window size for %K calculation
+        d_window (int): Window size for %D calculation (moving average of %K)
+        
+    Returns:
+        pd.Series: %D values normalized to 0-1 range
+    """
+    # Calculate %K
+    k_values = calculate_stochastic_k(data, window=k_window).values
+    
+    # Calculate %D (moving average of %K)
+    d_values = np.zeros_like(k_values)
+    
+    for i in range(len(k_values)):
+        if i < d_window:
+            # Use available data for first few points
+            d_values[i] = np.mean(k_values[0:i+1])
+        else:
+            # Use full window for later points
+            d_values[i] = np.mean(k_values[i-d_window+1:i+1])
+    
+    # Replace NaNs with 0.5 (neutral value)
+    result = np.nan_to_num(d_values, nan=0.5, posinf=1.0, neginf=0.0)
     return pd.Series(result, index=data.index) 

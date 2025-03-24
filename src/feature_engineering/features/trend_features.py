@@ -57,23 +57,25 @@ def calculate_sma_10(data: pd.DataFrame) -> pd.Series:
 @FeatureRegistry.register(name="sma_20", category="trend")
 def calculate_sma_20(data: pd.DataFrame) -> pd.Series:
     """
-    Calculate the 20-day Simple Moving Average (SMA) ratio to current price.
+    Calculate the 20-day Simple Moving Average ratio to current price.
     
     Args:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        pd.Series: SMA/Price ratio values
+        pd.Series: SMA-20 to price ratio
     """
+    # Calculate directly using pandas to preserve Series attributes
     close = data['Close']
-    sma = close.rolling(window=20).mean()
-    sma = sma.fillna(method='bfill').fillna(close)
+    sma = close.rolling(window=20).mean().bfill().fillna(close)
     
-    # SMA/Price ratio (> 1 means price is below SMA, < 1 means price is above SMA)
-    ratio = sma / close
+    # Calculate ratio and handle potential division by zero
+    ratio = sma / close.clip(lower=1e-8)
     
-    result = np.nan_to_num(ratio.values, nan=1.0, posinf=1.0, neginf=1.0)
-    return pd.Series(result, index=data.index)
+    # Replace NaNs and infinities with 1.0
+    ratio = ratio.fillna(1.0).replace([np.inf, -np.inf], 1.0)
+    
+    return ratio
 
 
 @FeatureRegistry.register(name="sma_50", category="trend")
@@ -183,35 +185,71 @@ def calculate_ema_20(data: pd.DataFrame) -> pd.Series:
     return pd.Series(result, index=data.index)
 
 
-@FeatureRegistry.register(name="ma_crossover", category="trend")
-def calculate_ma_crossover(data: pd.DataFrame) -> pd.Series:
+@FeatureRegistry.register(name="ema_10", category="trend")
+def calculate_ema_10(data: pd.DataFrame) -> pd.Series:
     """
-    Calculate the crossover signal between short-term and long-term moving averages.
+    Calculate the 10-day Exponential Moving Average ratio to current price.
     
     Args:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        pd.Series: Crossover signal (-1 to 1 range)
+        pd.Series: EMA-10 to price ratio
+    """
+    close = data['Close'].values
+    
+    # Calculate EMA
+    alpha = 2 / (10 + 1)
+    ema = np.zeros_like(close)
+    
+    # First value is the first close
+    ema[0] = close[0]
+    
+    # Calculate EMA
+    for i in range(1, len(close)):
+        ema[i] = close[i] * alpha + ema[i-1] * (1 - alpha)
+    
+    # Calculate ratio
+    ratio = ema / np.maximum(close, 1e-8)
+    
+    # Replace NaNs and infinities with 1
+    result = np.nan_to_num(ratio, nan=1.0, posinf=1.0, neginf=1.0)
+    return pd.Series(result, index=data.index)
+
+
+@FeatureRegistry.register(name="ma_crossover", category="trend")
+def calculate_ma_crossover(data: pd.DataFrame, 
+                          short_window: int = 10, 
+                          long_window: int = 50) -> pd.Series:
+    """
+    Calculate moving average crossover signal.
+    
+    Args:
+        data (pd.DataFrame): OHLCV data
+        short_window (int): Window size for short MA
+        long_window (int): Window size for long MA
+        
+    Returns:
+        pd.Series: Crossover signal (-1 to 1)
     """
     close = data['Close']
     
-    # Calculate short and long-term moving averages
-    short_ma = close.rolling(window=10).mean()
-    long_ma = close.rolling(window=50).mean()
+    # Calculate short and long MAs
+    short_ma = close.rolling(window=short_window).mean()
+    long_ma = close.rolling(window=long_window).mean()
     
-    # Ensure we have values from the beginning
-    short_ma = short_ma.fillna(method='bfill').fillna(close)
-    long_ma = long_ma.fillna(method='bfill').fillna(close)
+    # Use backfill for missing values
+    short_ma = short_ma.bfill().fillna(close)
+    long_ma = long_ma.bfill().fillna(close)
     
-    # Calculate relative difference
-    diff = (short_ma - long_ma) / long_ma
+    # Calculate crossover signal
+    signal = (short_ma - long_ma) / close.clip(lower=1e-8)
     
-    # Normalize to -1 to 1 range (a 10% difference is considered significant)
-    signal = np.clip(diff * 10, -1, 1)
+    # Normalize to -1 to 1 range
+    normalized = signal.clip(lower=-1, upper=1)  # Scale and clip
     
-    result = np.nan_to_num(signal.values, nan=0.0)
-    return pd.Series(result, index=data.index)
+    # Return the result as a Series with the same index as the input data
+    return normalized
 
 
 @FeatureRegistry.register(name="price_trend", category="trend")
@@ -257,57 +295,132 @@ def calculate_price_trend(data: pd.DataFrame, window: int = 20) -> pd.Series:
 @FeatureRegistry.register(name="adx", category="trend")
 def calculate_adx(data: pd.DataFrame, window: int = 14) -> pd.Series:
     """
-    Calculate the Average Directional Index (ADX) for trend strength.
+    Calculate the Average Directional Index (ADX).
     
     Args:
         data (pd.DataFrame): OHLCV data
         window (int): Window size for ADX calculation
         
     Returns:
-        pd.Series: ADX values (0-1 range)
+        pd.Series: ADX values (normalized to 0-1 range)
     """
     high = data['High'].values
     low = data['Low'].values
     close = data['Close'].values
     
-    # Calculate True Range
-    tr1 = np.abs(high[1:] - low[1:])
-    tr2 = np.abs(high[1:] - close[:-1])
-    tr3 = np.abs(low[1:] - close[:-1])
+    # Get previous highs and lows
+    prev_high = np.roll(high, 1)
+    prev_low = np.roll(low, 1)
+    prev_close = np.roll(close, 1)
+    
+    # Set initial values to the current values
+    prev_high[0] = high[0]
+    prev_low[0] = low[0]
+    prev_close[0] = close[0]
+    
+    # Calculate +DM, -DM
+    plus_dm = np.maximum(high - prev_high, 0)
+    minus_dm = np.maximum(prev_low - low, 0)
+    
+    # When +DM > -DM, set -DM to zero
+    plus_dm = np.where(plus_dm > minus_dm, plus_dm, 0)
+    
+    # When -DM > +DM, set +DM to zero
+    minus_dm = np.where(minus_dm > plus_dm, minus_dm, 0)
+    
+    # Calculate true range
+    tr1 = np.abs(high - low)
+    tr2 = np.abs(high - prev_close)
+    tr3 = np.abs(low - prev_close)
     tr = np.maximum(np.maximum(tr1, tr2), tr3)
-    tr = np.insert(tr, 0, tr1[0])  # Set first value
     
-    # Calculate +DM and -DM
-    up_move = high[1:] - high[:-1]
-    down_move = low[:-1] - low[1:]
+    # Calculate smoothed values
+    tr_smooth = np.zeros_like(tr)
+    plus_smooth = np.zeros_like(plus_dm)
+    minus_smooth = np.zeros_like(minus_dm)
     
-    # +DM and -DM
-    plus_dm = np.zeros_like(up_move)
-    minus_dm = np.zeros_like(down_move)
+    # First values
+    tr_smooth[0] = tr[0]
+    plus_smooth[0] = plus_dm[0]
+    minus_smooth[0] = minus_dm[0]
     
-    plus_dm[(up_move > down_move) & (up_move > 0)] = up_move[(up_move > down_move) & (up_move > 0)]
-    minus_dm[(down_move > up_move) & (down_move > 0)] = down_move[(down_move > up_move) & (down_move > 0)]
+    # Calculate smoothed values
+    for i in range(1, len(tr)):
+        tr_smooth[i] = tr_smooth[i-1] - (tr_smooth[i-1] / window) + tr[i]
+        plus_smooth[i] = plus_smooth[i-1] - (plus_smooth[i-1] / window) + plus_dm[i]
+        minus_smooth[i] = minus_smooth[i-1] - (minus_smooth[i-1] / window) + minus_dm[i]
     
-    # Pad the first value
-    plus_dm = np.insert(plus_dm, 0, 0)
-    minus_dm = np.insert(minus_dm, 0, 0)
+    # Calculate directional indicators
+    plus_di = 100 * plus_smooth / np.maximum(tr_smooth, 1e-8)
+    minus_di = 100 * minus_smooth / np.maximum(tr_smooth, 1e-8)
     
-    # Convert to pandas for rolling calculations
-    tr_s = pd.Series(tr)
-    plus_dm_s = pd.Series(plus_dm)
-    minus_dm_s = pd.Series(minus_dm)
+    # Calculate directional index
+    dx = 100 * np.abs(plus_di - minus_di) / np.maximum(plus_di + minus_di, 1e-8)
     
-    # Smooth the indicators
-    atr = tr_s.rolling(window=window).mean()
-    plus_di = 100 * (plus_dm_s.rolling(window=window).mean() / atr.clip(lower=1e-8))
-    minus_di = 100 * (minus_dm_s.rolling(window=window).mean() / atr.clip(lower=1e-8))
+    # Calculate ADX with smoothing
+    adx = np.zeros_like(dx)
+    adx[0] = dx[0]
     
-    # Calculate ADX
-    dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di).clip(lower=1e-8)
-    adx = dx.rolling(window=window).mean()
+    for i in range(1, len(dx)):
+        adx[i] = adx[i-1] + (dx[i] - adx[i-1]) / window
     
-    # Normalize to 0-1 range (ADX > 25 is considered strong trend)
+    # Normalize to 0-1 range
     adx_normalized = adx / 100.0
     
-    result = np.nan_to_num(adx_normalized.values, nan=0.0)
+    # Replace NaNs and Infs
+    result = np.nan_to_num(adx_normalized, nan=0.0, posinf=1.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
+
+
+@FeatureRegistry.register(name="aroon_oscillator", category="trend")
+def calculate_aroon_oscillator(data: pd.DataFrame, window: int = 14) -> pd.Series:
+    """
+    Calculate the Aroon Oscillator.
+    
+    Args:
+        data (pd.DataFrame): OHLCV data
+        window (int): Window size for Aroon calculation
+        
+    Returns:
+        pd.Series: Aroon Oscillator values (-1 to 1 range)
+    """
+    high = data['High'].values
+    low = data['Low'].values
+    
+    # Initialize arrays
+    aroon_up = np.zeros_like(high)
+    aroon_down = np.zeros_like(low)
+    
+    # Calculate Aroon Up and Down
+    for i in range(len(high)):
+        if i < window:
+            # For the first few points, use available data
+            period_high = high[0:i+1]
+            period_low = low[0:i+1]
+            
+            if len(period_high) > 0:  # Check if we have any data
+                high_idx = np.argmax(period_high)
+                low_idx = np.argmin(period_low)
+                
+                aroon_up[i] = (i - high_idx) / i if i > 0 else 0
+                aroon_down[i] = (i - low_idx) / i if i > 0 else 0
+            else:
+                aroon_up[i] = 0
+                aroon_down[i] = 0
+        else:
+            # Use full window
+            period_high = high[i-window+1:i+1]
+            period_low = low[i-window+1:i+1]
+            
+            high_idx = np.argmax(period_high)
+            low_idx = np.argmin(period_low)
+            
+            aroon_up[i] = (window - 1 - high_idx) / (window - 1)
+            aroon_down[i] = (window - 1 - low_idx) / (window - 1)
+    
+    # Calculate oscillator (up - down, normalized to -1 to 1)
+    oscillator = aroon_up - aroon_down
+    
+    # Replace NaNs
+    result = np.nan_to_num(oscillator, nan=0.0)
     return pd.Series(result, index=data.index) 
