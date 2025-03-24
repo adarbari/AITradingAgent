@@ -1,69 +1,83 @@
 """
-Base interface for backtesting systems
+Base class for backtesting trading strategies.
 """
 from abc import ABC, abstractmethod
-
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import os
 
 class BaseBacktester(ABC):
     """
-    Abstract base class for backtesting systems
-    
-    This defines the interface that all backtesters must implement
-    to ensure interchangeability.
+    Abstract base class for backtesting trading strategies.
     """
     
-    @abstractmethod
-    def backtest_model(self, model_name, test_start_date, test_end_date, data_source, 
-                       data_fetcher_factory, trading_env_class, **kwargs):
+    def __init__(self, results_dir='results'):
         """
-        Backtest a trained model on test data
+        Initialize the backtester.
         
         Args:
-            model_name (str): Name of the model to test
-            test_start_date (str): Start date for test data in YYYY-MM-DD format
-            test_end_date (str): End date for test data in YYYY-MM-DD format
-            data_source (str): Source of data (e.g., 'synthetic', 'yahoo')
-            data_fetcher_factory: Factory to create data fetchers
-            trading_env_class: Class to use for the trading environment
-            **kwargs: Additional keyword arguments specific to the implementation
+            results_dir (str): Directory to store backtest results
+        """
+        self.results_dir = results_dir
+        os.makedirs(results_dir, exist_ok=True)
+    
+    @abstractmethod
+    def backtest_model(self, model_path, symbol, test_start, test_end, data_source, env_class):
+        """
+        Backtest a trained model on historical data.
+        
+        Args:
+            model_path (str): Path to the trained model.
+            symbol (str): Symbol to backtest on.
+            test_start (str): Start date for testing (YYYY-MM-DD).
+            test_end (str): End date for testing (YYYY-MM-DD).
+            data_source (str): Source of data (e.g., 'yahoo', 'synthetic').
+            env_class (class): Environment class to use for backtesting.
             
         Returns:
-            dict: Dictionary of backtest results or None if backtest failed
+            dict: Results of the backtest including returns and performance metrics.
         """
         pass
     
     @abstractmethod
-    def get_market_performance(self, symbol, test_start_date, test_end_date, data_source, 
-                              data_fetcher_factory, **kwargs):
+    def plot_comparison(self, returns_df, benchmark_results, symbol):
         """
-        Get market performance for comparison
+        Plot comparison between model and benchmark performances.
         
         Args:
-            symbol (str): Market symbol to use (e.g., "^IXIC" for NASDAQ)
-            test_start_date (str): Start date for comparison in YYYY-MM-DD format
-            test_end_date (str): End date for comparison in YYYY-MM-DD format
-            data_source (str): Source of data (e.g., 'synthetic', 'yahoo')
-            data_fetcher_factory: Factory to create data fetchers
-            **kwargs: Additional keyword arguments specific to the implementation
+            returns_df (pd.DataFrame): DataFrame with portfolio values.
+            benchmark_results (dict): Dictionary of benchmark results.
+            symbol (str): Symbol being backtested.
             
         Returns:
-            numpy.ndarray: Normalized market price data or None if not available
+            str: Path to the saved plot.
         """
         pass
     
     @abstractmethod
-    def plot_comparison(self, results_dict, market_performance, test_start_date, test_end_date, **kwargs):
+    def save_results(self, results, file_path):
         """
-        Plot comparison of model performances against market
+        Save backtest results to a file.
         
         Args:
-            results_dict (dict): Dictionary of backtest results for each symbol
-            market_performance (numpy.ndarray): Normalized market price data
-            test_start_date (str): Start date for test data in YYYY-MM-DD format
-            test_end_date (str): End date for test data in YYYY-MM-DD format
-            **kwargs: Additional keyword arguments specific to the implementation
+            results (dict): Results from the backtest.
+            file_path (str): Path to save the results to.
             
         Returns:
-            str: Path to the saved chart or None if plotting failed
+            str: Path to the saved file.
+        """
+        pass
+    
+    @abstractmethod
+    def load_results(self, file_path):
+        """
+        Load backtest results from a file.
+        
+        Args:
+            file_path (str): Path to the file.
+            
+        Returns:
+            dict: Loaded results.
         """
         pass 
