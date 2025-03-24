@@ -6,13 +6,85 @@ import pandas as pd
 import yfinance as yf
 
 
-def prepare_robust_features(data, feature_count=21):
+def prepare_features_from_indicators(features_df, expected_feature_count=21, verbose=False):
+    """
+    Prepare features from a DataFrame that already contains technical indicators.
+    Handles column conversion, NaN values, normalization, and feature count matching.
+    
+    Args:
+        features_df (pd.DataFrame): DataFrame containing technical indicators
+        expected_feature_count (int): Expected number of features
+        verbose (bool): Whether to print information about the transformation
+        
+    Returns:
+        pd.DataFrame: Processed features DataFrame
+    """
+    features = features_df.copy()
+    
+    # First, ensure that all columns are numeric
+    for col in features.columns:
+        if not pd.api.types.is_numeric_dtype(features[col]):
+            if pd.api.types.is_datetime64_any_dtype(features[col]):
+                if verbose:
+                    print(f"Converting datetime column {col} to numeric timestamp")
+                features[col] = features[col].astype(np.int64) // 10**9  # Convert to Unix timestamp seconds
+            else:
+                if verbose:
+                    print(f"Converting non-numeric column {col} to numeric values")
+                try:
+                    features[col] = pd.to_numeric(features[col], errors='coerce')
+                except:
+                    if verbose:
+                        print(f"Could not convert column {col} to numeric, dropping it")
+                    features = features.drop(columns=[col])
+    
+    # Handle NaN values
+    features = features.fillna(0)  # Replace NaN with zeros
+    
+    # Apply simple normalization to avoid extreme values
+    for col in features.columns:
+        if features[col].std() > 0:
+            features[col] = (features[col] - features[col].mean()) / features[col].std()
+        else:
+            features[col] = 0  # If std is 0, set all values to 0
+    
+    # Ensure we have the expected number of features
+    if len(features.columns) < expected_feature_count:
+        if verbose:
+            print(f"Warning: Expected {expected_feature_count} features but only {len(features.columns)} are available.")
+            print("Adding dummy features to match the expected count...")
+        
+        # Add missing features with zeros
+        for i in range(len(features.columns), expected_feature_count):
+            feature_name = f"dummy_feature_{i}"
+            features[feature_name] = 0.0
+    
+    elif len(features.columns) > expected_feature_count:
+        if verbose:
+            print(f"Warning: More features than expected ({len(features.columns)} vs {expected_feature_count}).")
+            print(f"Keeping only the first {expected_feature_count} features...")
+        features = features.iloc[:, :expected_feature_count]
+    
+    # Final check for NaN or infinite values
+    if np.isnan(features.values).any() or np.isinf(features.values).any():
+        if verbose:
+            print("Warning: NaN or infinite values detected after processing. Replacing with zeros.")
+        features = features.replace([np.inf, -np.inf, np.nan], 0)
+    
+    if verbose:
+        print(f"Prepared {len(features)} data points with {len(features.columns)} features")
+    
+    return features
+
+
+def prepare_robust_features(data, feature_count=21, verbose=False):
     """
     Prepare features for the trading agent with robust error handling.
     
     Args:
         data (pd.DataFrame): Raw price data with OHLCV columns
         feature_count (int): Expected number of features
+        verbose (bool): Whether to print information about the transformation
         
     Returns:
         np.array: Processed features with shape (n_samples, feature_count)
