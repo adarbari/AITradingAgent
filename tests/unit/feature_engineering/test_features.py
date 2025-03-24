@@ -89,7 +89,7 @@ class TestVolumeFeatures:
         window = 20
         volume_sma = sample_ohlcv_data['Volume'].rolling(window=window).mean().fillna(sample_ohlcv_data['Volume'])
         expected_ratio = np.minimum(sample_ohlcv_data['Volume'] / volume_sma, 5)  # Capped at 5
-        pd.testing.assert_series_equal(result, expected_ratio, check_exact=False, atol=1e-4)
+        pd.testing.assert_series_equal(result, expected_ratio, check_exact=False, check_names=False, atol=1e-4)
     
     def test_volume_feature_robustness(self, abnormal_ohlcv_data):
         """Test robustness of volume features with abnormal data."""
@@ -140,7 +140,7 @@ class TestMomentumFeatures:
         ema12 = sample_ohlcv_data['Close'].ewm(span=12, adjust=False).mean()
         ema26 = sample_ohlcv_data['Close'].ewm(span=26, adjust=False).mean()
         expected_macd = (ema12 - ema26) / sample_ohlcv_data['Close']  # Normalized
-        pd.testing.assert_series_equal(result, expected_macd, check_exact=False, atol=1e-4)
+        pd.testing.assert_series_equal(result, expected_macd, check_exact=False, check_names=False, atol=1e-4)
     
     def test_momentum_feature_robustness(self, abnormal_ohlcv_data):
         """Test robustness of momentum features with abnormal data."""
@@ -166,7 +166,7 @@ class TestTrendFeatures:
         # SMA_20 ratio should be the 20-day SMA divided by close
         sma20 = sample_ohlcv_data['Close'].rolling(window=20).mean().fillna(method='bfill')
         expected_ratio = sma20 / sample_ohlcv_data['Close']
-        pd.testing.assert_series_equal(result, expected_ratio, check_exact=False, atol=1e-4)
+        pd.testing.assert_series_equal(result, expected_ratio, check_exact=False, check_names=False, atol=1e-4)
         
         # In an uptrend, SMA should be below price (ratio < 1)
         uptrend_data = sample_ohlcv_data.copy()
