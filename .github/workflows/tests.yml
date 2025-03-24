@@ -29,11 +29,11 @@ jobs:
     
     - name: Run unit tests
       run: |
-        python run_tests.py --unit
+        python scripts/run_tests.py --unit
     
     - name: Run integration tests
       run: |
-        python run_tests.py --integration
+        python scripts/run_tests.py --integration
     
     - name: Generate coverage report
       run: |

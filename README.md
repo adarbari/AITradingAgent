@@ -83,17 +83,17 @@ python src/scripts/compare_models.py --symbol AMZN --test-start 2024-01-01 --tes
 
 To run all tests:
 ```
-python run_tests.py
+python scripts/run_tests.py
 ```
 
 To run only unit tests:
 ```
-python run_tests.py --unit
+python scripts/run_tests.py --unit
 ```
 
 To run only integration tests:
 ```
-python run_tests.py --integration
+python scripts/run_tests.py --integration
 ```
 
 ## Development
