@@ -2,22 +2,18 @@
 Trading agent using reinforcement learning.
 """
 import os
-import time
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import Sequential, Model, load_model
-from tensorflow.keras.layers import Dense, LSTM, Flatten, Input, Concatenate
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint
-import joblib
-from collections import deque
 import random
+from collections import deque
+
+import numpy as np
+# Import specific keras modules without importing the base package
+from keras import Model
+from keras import layers
+from keras import optimizers
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
-
-from .trading_env import TradingEnvironment
 
 
 class DQNTradingAgent:
@@ -72,25 +68,25 @@ class DQNTradingAgent:
             keras.Model: Neural network model
         """
         # Feature input (technical indicators)
-        feature_input = Input(shape=self.state_size, name='feature_input')
-        feature_flatten = Flatten()(feature_input)
+        feature_input = layers.Input(shape=self.state_size, name='feature_input')
+        feature_flatten = layers.Flatten()(feature_input)
         
         # Account info input (balance, shares_held, cost_basis)
-        account_input = Input(shape=(3,), name='account_input')
+        account_input = layers.Input(shape=(3,), name='account_input')
         
         # Combine inputs
-        combined = Concatenate()([feature_flatten, account_input])
+        combined = layers.Concatenate()([feature_flatten, account_input])
         
         # Shared layers
-        x = Dense(128, activation='relu')(combined)
-        x = Dense(64, activation='relu')(x)
+        x = layers.Dense(128, activation='relu')(combined)
+        x = layers.Dense(64, activation='relu')(x)
         
         # Output layer
-        output = Dense(self.action_size, activation='linear')(x)
+        output = layers.Dense(self.action_size, activation='linear')(x)
         
         # Create model
         model = Model(inputs=[feature_input, account_input], outputs=output)
-        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        model.compile(loss='mse', optimizer=optimizers.Adam(learning_rate=self.learning_rate))
         
         return model
     
