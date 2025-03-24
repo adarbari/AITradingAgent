@@ -11,7 +11,7 @@ from ..registry import FeatureRegistry
 
 
 @FeatureRegistry.register(name="price_change", category="price")
-def calculate_price_change(data: pd.DataFrame) -> np.ndarray:
+def calculate_price_change(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the percentage change in price from the previous day.
     
@@ -19,15 +19,16 @@ def calculate_price_change(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Daily price changes
+        pd.Series: Daily price changes
     """
     close_prices = data['Close'].values
     price_returns = np.diff(close_prices, prepend=close_prices[0]) / np.maximum(close_prices, 1e-8)
-    return np.nan_to_num(price_returns, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(price_returns, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="high_low_range", category="price")
-def calculate_high_low_range(data: pd.DataFrame) -> np.ndarray:
+def calculate_high_low_range(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the high-low range as a percentage of closing price.
     
@@ -35,14 +36,15 @@ def calculate_high_low_range(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: High-low range values
+        pd.Series: High-low range values
     """
     high_low_range = (data['High'].values - data['Low'].values) / np.maximum(data['Close'].values, 1e-8)
-    return np.nan_to_num(high_low_range, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(high_low_range, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="gap", category="price")
-def calculate_gap(data: pd.DataFrame) -> np.ndarray:
+def calculate_gap(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the overnight gap (open price vs previous close).
     
@@ -50,17 +52,18 @@ def calculate_gap(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Overnight gap values
+        pd.Series: Overnight gap values
     """
     shifted_close = np.roll(data['Close'].values, 1)
     shifted_close[0] = data['Open'].values[0]  # First value has no previous close
     
     gap = (data['Open'].values - shifted_close) / np.maximum(shifted_close, 1e-8)
-    return np.nan_to_num(gap, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(gap, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="vwap_distance", category="price")
-def calculate_vwap_distance(data: pd.DataFrame) -> np.ndarray:
+def calculate_vwap_distance(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the distance of close price from Volume Weighted Average Price (VWAP).
     
@@ -68,7 +71,7 @@ def calculate_vwap_distance(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Distance from VWAP
+        pd.Series: Distance from VWAP
     """
     # Calculate typical price
     typical_price = (data['High'] + data['Low'] + data['Close']) / 3
@@ -79,11 +82,12 @@ def calculate_vwap_distance(data: pd.DataFrame) -> np.ndarray:
     # Calculate distance from VWAP
     distance = (data['Close'] - vwap) / np.maximum(vwap, 1e-8)
     
-    return np.nan_to_num(distance.values, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(distance.values, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="price_dispersion", category="price")
-def calculate_price_dispersion(data: pd.DataFrame, window: int = 5) -> np.ndarray:
+def calculate_price_dispersion(data: pd.DataFrame, window: int = 5) -> pd.Series:
     """
     Calculate price dispersion (difference between high and low over a window).
     
@@ -92,11 +96,12 @@ def calculate_price_dispersion(data: pd.DataFrame, window: int = 5) -> np.ndarra
         window (int): Window size for rolling calculation
         
     Returns:
-        np.ndarray: Price dispersion values
+        pd.Series: Price dispersion values
     """
     rolling_high = data['High'].rolling(window=window).max()
     rolling_low = data['Low'].rolling(window=window).min()
     
     dispersion = (rolling_high - rolling_low) / np.maximum(data['Close'], 1e-8)
     
-    return np.nan_to_num(dispersion.values, nan=0.0, posinf=0.0, neginf=0.0) 
+    result = np.nan_to_num(dispersion.values, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index) 

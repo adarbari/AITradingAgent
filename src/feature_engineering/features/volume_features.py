@@ -11,45 +11,51 @@ from ..registry import FeatureRegistry
 
 
 @FeatureRegistry.register(name="volume_change", category="volume")
-def calculate_volume_change(data: pd.DataFrame) -> np.ndarray:
+def calculate_volume_change(data: pd.DataFrame) -> pd.Series:
     """
-    Calculate the percentage change in volume from the previous day.
+    Calculate percentage change in trading volume from the previous day.
     
     Args:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Volume change values
+        pd.Series: Volume change values
     """
-    volume = np.maximum(data['Volume'].values, 1)  # Ensure no zeros
-    volume_changes = np.diff(volume, prepend=volume[0]) / volume
-    return np.nan_to_num(volume_changes, nan=0.0, posinf=0.0, neginf=0.0)
+    volume = data['Volume'].values
+    volume_change = np.diff(volume, prepend=volume[0]) / np.maximum(volume, 1e-8)
+    result = np.nan_to_num(volume_change, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="volume_sma_ratio", category="volume")
-def calculate_volume_sma_ratio(data: pd.DataFrame, window: int = 20) -> np.ndarray:
+def calculate_volume_sma_ratio(data: pd.DataFrame, window: int = 20) -> pd.Series:
     """
-    Calculate the ratio of current volume to its moving average.
+    Calculate the ratio of current volume to its SMA.
     
     Args:
         data (pd.DataFrame): OHLCV data
-        window (int): Window size for moving average
+        window (int): Window size for SMA calculation
         
     Returns:
-        np.ndarray: Volume to SMA ratio
+        pd.Series: Volume to SMA ratio
     """
     volume = data['Volume'].values
-    volume_sma = pd.Series(volume).rolling(window=window).mean().fillna(volume).values
-    ratio = volume / np.maximum(volume_sma, 1)
     
-    # Cap extreme values
-    ratio = np.clip(ratio, 0, 5)
+    # Calculate volume SMA
+    volume_series = pd.Series(volume, index=data.index)
+    volume_sma = volume_series.rolling(window=window).mean()
+    # Fill NaNs with the current volume value
+    volume_sma = volume_sma.fillna(volume_series)
     
-    return np.nan_to_num(ratio, nan=1.0)
+    # Calculate ratio
+    ratio = volume / np.maximum(volume_sma.values, 1e-8)
+    result = np.nan_to_num(ratio, nan=1.0, posinf=1.0, neginf=1.0)
+    
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="obv", category="volume")
-def calculate_obv(data: pd.DataFrame) -> np.ndarray:
+def calculate_obv(data: pd.DataFrame) -> pd.Series:
     """
     Calculate On-Balance Volume (OBV) normalized.
     
@@ -57,7 +63,7 @@ def calculate_obv(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Normalized OBV values
+        pd.Series: Normalized OBV values
     """
     close = data['Close'].values
     volume = data['Volume'].values
@@ -87,11 +93,12 @@ def calculate_obv(data: pd.DataFrame) -> np.ndarray:
     # Normalize to -1 to 1 range
     obv_normalized = 2 * (obv_series - obv_min) / obv_range - 1
     
-    return np.nan_to_num(obv_normalized.values, nan=0.0)
+    result = np.nan_to_num(obv_normalized.values, nan=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="price_volume_trend", category="volume")
-def calculate_pvt(data: pd.DataFrame) -> np.ndarray:
+def calculate_pvt(data: pd.DataFrame) -> pd.Series:
     """
     Calculate Price Volume Trend (PVT) indicator normalized.
     
@@ -99,7 +106,7 @@ def calculate_pvt(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Normalized PVT values
+        pd.Series: Normalized PVT values
     """
     close = data['Close'].values
     volume = data['Volume'].values
@@ -124,11 +131,12 @@ def calculate_pvt(data: pd.DataFrame) -> np.ndarray:
     # Clip to reasonable range (-3 to 3)
     pvt_normalized = np.clip(pvt_normalized, -3, 3) / 3
     
-    return np.nan_to_num(pvt_normalized.values, nan=0.0)
+    result = np.nan_to_num(pvt_normalized.values, nan=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="volume_price_confirm", category="volume")
-def calculate_volume_price_confirm(data: pd.DataFrame, window: int = 5) -> np.ndarray:
+def calculate_volume_price_confirm(data: pd.DataFrame, window: int = 5) -> pd.Series:
     """
     Calculate if volume confirms price movement (positive when both price and volume increase).
     
@@ -137,7 +145,7 @@ def calculate_volume_price_confirm(data: pd.DataFrame, window: int = 5) -> np.nd
         window (int): Window for moving average
         
     Returns:
-        np.ndarray: Confirmation signal (-1 to 1 range)
+        pd.Series: Confirmation signal (-1 to 1 range)
     """
     close = data['Close'].values
     volume = data['Volume'].values
@@ -159,4 +167,35 @@ def calculate_volume_price_confirm(data: pd.DataFrame, window: int = 5) -> np.nd
     # A high negative value means divergence
     confirmation = norm_price_change * np.sign(norm_volume_change) * np.abs(norm_volume_change)
     
-    return np.nan_to_num(confirmation.values, nan=0.0) 
+    result = np.nan_to_num(confirmation.values, nan=0.0)
+    return pd.Series(result, index=data.index)
+
+
+@FeatureRegistry.register(name="relative_volume", category="volume")
+def calculate_relative_volume(data: pd.DataFrame, window: int = 20) -> pd.Series:
+    """
+    Calculate relative volume compared to average.
+    
+    Args:
+        data (pd.DataFrame): OHLCV data
+        window (int): Window size for average calculation
+        
+    Returns:
+        pd.Series: Relative volume values
+    """
+    volume = data['Volume'].values
+    
+    # Calculate average volume over the past 'window' days
+    volume_series = pd.Series(volume, index=data.index)
+    avg_volume = volume_series.rolling(window=window).mean()
+    # Fill NaNs with the current volume value
+    avg_volume = avg_volume.fillna(volume_series)
+    
+    # Calculate relative volume (how many times higher/lower than average)
+    rel_volume = volume / np.maximum(avg_volume.values, 1e-8)
+    
+    # Normalize to a 0-1 scale using a sigmoid-like function
+    normalized = 2 / (1 + np.exp(-0.5 * rel_volume)) - 1
+    
+    result = np.nan_to_num(normalized, nan=0.5, posinf=1.0, neginf=0.0)
+    return pd.Series(result, index=data.index) 

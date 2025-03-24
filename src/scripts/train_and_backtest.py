@@ -25,14 +25,9 @@ from src.train.trainer import TrainingManager
 from src.utils.feature_utils import prepare_robust_features, prepare_features_from_indicators, get_data
 
 # Import feature engineering module
-try:
-    from src.feature_engineering import process_features, FeatureRegistry, FEATURE_CONFIGS
-    from src.feature_engineering.pipeline import FeaturePipeline
-    from src.feature_engineering.cache import FeatureCache
-    FEATURE_ENGINEERING_AVAILABLE = True
-except ImportError:
-    print("Warning: Feature engineering module not available, falling back to legacy implementation")
-    FEATURE_ENGINEERING_AVAILABLE = False
+from src.feature_engineering import process_features, FeatureRegistry, FEATURE_CONFIGS
+from src.feature_engineering.pipeline import FeaturePipeline
+from src.feature_engineering.cache import FeatureCache
 
 def calculate_max_drawdown(portfolio_values):
     """
@@ -94,29 +89,21 @@ def train_model(symbol, train_start, train_end, model_path=None,
     
     print(f"Fetched {len(data)} days of data for training")
     
-    # Generate features using the new feature engineering module if available
-    if FEATURE_ENGINEERING_AVAILABLE:
-        print(f"Using feature engineering module with feature set: {feature_set}")
-        # Initialize feature cache
-        cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=verbose > 0)
-        cache_key = cache.get_cache_key(symbol, train_start, train_end, feature_set)
-        
-        # Check if features are cached
-        cached_features = cache.load(cache_key)
-        if cached_features is not None and not force_retrain:
-            print("Using cached features")
-            features = cached_features
-        else:
-            print("Computing features from data")
-            features = process_features(data, feature_set=feature_set, verbose=verbose > 0)
-            cache.save(features, cache_key)
+    # Generate features using the feature engineering module
+    print(f"Using feature engineering module with feature set: {feature_set}")
+    # Initialize feature cache
+    cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=verbose > 0)
+    cache_key = cache.get_cache_key(symbol, train_start, train_end, feature_set)
+    
+    # Check if features are cached
+    cached_features = cache.load(cache_key)
+    if cached_features is not None and not force_retrain:
+        print("Using cached features")
+        features = cached_features
     else:
-        # Fallback to legacy feature preparation
-        print("Using legacy feature preparation")
-        indicators = data.drop(['Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits'], 
-                               axis=1, errors='ignore')
-        features = prepare_features_from_indicators(indicators, expected_feature_count=feature_count, 
-                                                   verbose=verbose > 0)
+        print("Computing features from data")
+        features = process_features(data, feature_set=feature_set, verbose=verbose > 0)
+        cache.save(features, cache_key)
     
     print(f"Prepared {len(features)} data points with {len(features.columns)} features for training")
     
@@ -208,31 +195,21 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
     # Fetch and prepare test data
     test_data = fetch_and_prepare_data(symbol, test_start, test_end, data_source)
     
-    # Generate features using the new feature engineering module if available
-    if FEATURE_ENGINEERING_AVAILABLE:
-        print(f"Using feature engineering module with feature set: {feature_set}")
-        # Initialize feature cache
-        cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=True)
-        cache_key = cache.get_cache_key(symbol, test_start, test_end, feature_set)
-        
-        # Check if features are cached
-        cached_features = cache.load(cache_key)
-        if cached_features is not None:
-            print("Using cached features")
-            features = cached_features
-        else:
-            print("Computing features from data")
-            features = process_features(test_data, feature_set=feature_set, verbose=True)
-            cache.save(features, cache_key)
+    # Generate features using the feature engineering module
+    print(f"Using feature engineering module with feature set: {feature_set}")
+    # Initialize feature cache
+    cache = FeatureCache(cache_dir=".feature_cache", enable_cache=True, verbose=True)
+    cache_key = cache.get_cache_key(symbol, test_start, test_end, feature_set)
+    
+    # Check if features are cached
+    cached_features = cache.load(cache_key)
+    if cached_features is not None:
+        print("Using cached features")
+        features = cached_features
     else:
-        # Fallback to legacy feature preparation
-        print("Using legacy feature preparation")
-        features_df = test_data.drop(['Open', 'High', 'Low', 'Close', 'Volume', 'Dividends', 'Stock Splits'], 
-                                  axis=1, errors='ignore')
-        # Use the centralized feature preparation function
-        expected_feature_count = 21
-        features = prepare_features_from_indicators(features_df, expected_feature_count=expected_feature_count, 
-                                                verbose=True)
+        print("Computing features from data")
+        features = process_features(test_data, feature_set=feature_set, verbose=True)
+        cache.save(features, cache_key)
     
     print(f"Prepared {len(features)} data points with {len(features.columns)} features for testing")
     

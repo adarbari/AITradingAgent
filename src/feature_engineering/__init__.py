@@ -10,6 +10,9 @@ from .pipeline import FeaturePipeline
 from .config import FeatureConfig, FEATURE_CONFIGS
 from .cache import FeatureCache
 
+# Import features package to ensure all feature functions are registered
+from . import features
+
 # Re-export key APIs for convenience
 __all__ = [
     'FeatureRegistry',
@@ -27,8 +30,8 @@ def process_features(data, feature_set="standard", feature_count=21, verbose=Fal
     
     Args:
         data (pd.DataFrame): Raw OHLCV data
-        feature_set (str): Name of the feature set to use 
-                          ("minimal", "standard", "advanced")
+        feature_set (str or list): Name of the feature set to use 
+                          ("minimal", "standard", "advanced") or a list of features
         feature_count (int): Expected number of features
         verbose (bool): Whether to print information during processing
         
@@ -39,7 +42,10 @@ def process_features(data, feature_set="standard", feature_count=21, verbose=Fal
     from .pipeline import FeaturePipeline
     
     # Use the feature list from config, or use the feature set name as a feature list
-    feature_list = FEATURE_CONFIGS.get(feature_set, feature_set.split(','))
+    if isinstance(feature_set, list):
+        feature_list = feature_set
+    else:
+        feature_list = FEATURE_CONFIGS.get(feature_set, feature_set.split(','))
     
     # Create and run the feature pipeline
     pipeline = FeaturePipeline(feature_list=feature_list, feature_count=feature_count, verbose=verbose)

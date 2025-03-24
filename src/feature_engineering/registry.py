@@ -128,7 +128,7 @@ class FeatureRegistry:
         return cls._metadata.get(name, {})
     
     @classmethod
-    def compute_feature(cls, name: str, data: pd.DataFrame, **kwargs) -> np.ndarray:
+    def compute_feature(cls, name: str, data: pd.DataFrame, **kwargs) -> pd.Series:
         """
         Compute a single feature.
         
@@ -138,7 +138,7 @@ class FeatureRegistry:
             **kwargs: Additional parameters to pass to the feature function
             
         Returns:
-            np.ndarray: Computed feature values
+            pd.Series: Computed feature values
             
         Raises:
             ValueError: If feature does not exist

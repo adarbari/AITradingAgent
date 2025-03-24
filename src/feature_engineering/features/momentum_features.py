@@ -11,7 +11,7 @@ from ..registry import FeatureRegistry
 
 
 @FeatureRegistry.register(name="rsi_14", category="momentum")
-def calculate_rsi_14(data: pd.DataFrame) -> np.ndarray:
+def calculate_rsi_14(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the 14-day Relative Strength Index (RSI).
     
@@ -19,7 +19,7 @@ def calculate_rsi_14(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: RSI values (0-100 range, normalized to 0-1)
+        pd.Series: RSI values (0-100 range, normalized to 0-1)
     """
     close = data['Close'].values
     period = 14
@@ -44,11 +44,12 @@ def calculate_rsi_14(data: pd.DataFrame) -> np.ndarray:
     # Normalize to 0-1 range
     rsi_normalized = rsi / 100.0
     
-    return np.nan_to_num(rsi_normalized, nan=0.5)  # Default to middle value if NaN
+    result = np.nan_to_num(rsi_normalized, nan=0.5)  # Default to middle value if NaN
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="rsi_2", category="momentum")
-def calculate_rsi_2(data: pd.DataFrame) -> np.ndarray:
+def calculate_rsi_2(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the 2-day Relative Strength Index (RSI).
     
@@ -56,7 +57,7 @@ def calculate_rsi_2(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: RSI values (0-100 range, normalized to 0-1)
+        pd.Series: RSI values (0-100 range, normalized to 0-1)
     """
     close = data['Close'].values
     period = 2
@@ -81,11 +82,12 @@ def calculate_rsi_2(data: pd.DataFrame) -> np.ndarray:
     # Normalize to 0-1 range
     rsi_normalized = rsi / 100.0
     
-    return np.nan_to_num(rsi_normalized, nan=0.5)  # Default to middle value if NaN
+    result = np.nan_to_num(rsi_normalized, nan=0.5)  # Default to middle value if NaN
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="macd", category="momentum")
-def calculate_macd(data: pd.DataFrame) -> np.ndarray:
+def calculate_macd(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the MACD (Moving Average Convergence Divergence) line.
     
@@ -93,7 +95,7 @@ def calculate_macd(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: MACD line values (normalized by price)
+        pd.Series: MACD line values (normalized by price)
     """
     close = data['Close'].values
     
@@ -107,11 +109,12 @@ def calculate_macd(data: pd.DataFrame) -> np.ndarray:
     # Normalize by price
     macd_normalized = macd_line / np.maximum(close, 1e-8)
     
-    return np.nan_to_num(macd_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(macd_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="macd_signal", category="momentum")
-def calculate_macd_signal(data: pd.DataFrame) -> np.ndarray:
+def calculate_macd_signal(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the MACD signal line (9-day EMA of MACD line).
     
@@ -119,7 +122,7 @@ def calculate_macd_signal(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: MACD signal line values (normalized by price)
+        pd.Series: MACD signal line values (normalized by price)
     """
     close = data['Close'].values
     
@@ -136,11 +139,12 @@ def calculate_macd_signal(data: pd.DataFrame) -> np.ndarray:
     # Normalize by price
     signal_normalized = signal_line / np.maximum(close, 1e-8)
     
-    return np.nan_to_num(signal_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(signal_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="macd_histogram", category="momentum")
-def calculate_macd_histogram(data: pd.DataFrame) -> np.ndarray:
+def calculate_macd_histogram(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the MACD histogram (MACD line - Signal line).
     
@@ -148,7 +152,7 @@ def calculate_macd_histogram(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: MACD histogram values (normalized by price)
+        pd.Series: MACD histogram values (normalized by price)
     """
     close = data['Close'].values
     
@@ -168,11 +172,12 @@ def calculate_macd_histogram(data: pd.DataFrame) -> np.ndarray:
     # Normalize by price
     histogram_normalized = histogram / np.maximum(close, 1e-8)
     
-    return np.nan_to_num(histogram_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(histogram_normalized.values, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="momentum_5", category="momentum")
-def calculate_momentum_5(data: pd.DataFrame) -> np.ndarray:
+def calculate_momentum_5(data: pd.DataFrame) -> pd.Series:
     """
     Calculate the 5-day momentum indicator.
     
@@ -180,7 +185,7 @@ def calculate_momentum_5(data: pd.DataFrame) -> np.ndarray:
         data (pd.DataFrame): OHLCV data
         
     Returns:
-        np.ndarray: Momentum values
+        pd.Series: Momentum values
     """
     close = data['Close'].values
     period = 5
@@ -188,11 +193,12 @@ def calculate_momentum_5(data: pd.DataFrame) -> np.ndarray:
     # Calculate momentum (current price / price n periods ago - 1)
     momentum = pd.Series(close).pct_change(periods=period).fillna(0).values
     
-    return np.nan_to_num(momentum, nan=0.0, posinf=0.0, neginf=0.0)
+    result = np.nan_to_num(momentum, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.Series(result, index=data.index)
 
 
 @FeatureRegistry.register(name="stoch_k", category="momentum")
-def calculate_stochastic_k(data: pd.DataFrame, window: int = 14) -> np.ndarray:
+def calculate_stochastic_k(data: pd.DataFrame, window: int = 14) -> pd.Series:
     """
     Calculate the Stochastic Oscillator %K.
     
@@ -201,7 +207,7 @@ def calculate_stochastic_k(data: pd.DataFrame, window: int = 14) -> np.ndarray:
         window (int): Window size for calculation
         
     Returns:
-        np.ndarray: Stochastic %K values (0-1 range)
+        pd.Series: Stochastic %K values (0-1 range)
     """
     high = data['High'].values
     low = data['Low'].values
@@ -222,4 +228,5 @@ def calculate_stochastic_k(data: pd.DataFrame, window: int = 14) -> np.ndarray:
     # Normalize to 0-1 range
     k_normalized = k / 100.0
     
-    return np.nan_to_num(k_normalized.values, nan=0.5)  # Default to middle if NaN 
+    result = np.nan_to_num(k_normalized.values, nan=0.5)  # Default to middle if NaN
+    return pd.Series(result, index=data.index) 
