@@ -189,7 +189,8 @@ class TestTradingEnvironment:
         )
         
         # Test with previous net worth = 10000, current = 11000
-        env.total_net_worth = 11000
+        # Set up the portfolio to have a value of 11000
+        env.cash_balance = 11000
         reward = env._calculate_reward(10000)
         
         # Reward should be the percentage change

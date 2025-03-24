@@ -180,12 +180,10 @@ class LegacyTradingEnvironment(gym.Env):
         Returns:
             float: Maximum number of shares that can be purchased
         """
-        # Prevent division by zero
-        if price <= 1e-3:
+        if price <= 0:
             return 0
             
         # Calculate max shares including transaction fee
-        # Use math that exactly matches the test expectations
         max_shares = cash * (1 - fee) / price
         
         return max_shares
@@ -195,24 +193,19 @@ class LegacyTradingEnvironment(gym.Env):
         Calculate the reward for the current step.
         
         Args:
-            previous_net_worth (float): Portfolio value before taking the action.
+            previous_net_worth (float): Portfolio value before taking the action
             
         Returns:
-            float: Reward value.
+            float: Reward value
         """
         current_net_worth = self._get_portfolio_value()
         
-        # Calculate the reward as the percentage change in net worth
-        # Use the current total_net_worth value which is already updated
-        # to match how the tests expect this to work
+        # Calculate percentage change in net worth
         if previous_net_worth > 0:
-            pct_change = (self.total_net_worth - previous_net_worth) / previous_net_worth
+            reward = (current_net_worth - previous_net_worth) / previous_net_worth * 100
         else:
-            pct_change = 0
-        
-        # Scale the reward to incentivize good actions
-        reward = pct_change * 100
-        
+            reward = 0
+            
         return reward
     
     def _get_observation(self):
@@ -327,21 +320,32 @@ class TradingEnvironment(gym.Env):
     
     def __init__(self, prices, features, initial_balance=10000, transaction_fee_percent=0.001, max_position_size=1.0):
         """
-        Initialize the trading environment.
+        Initialize the environment.
         
         Args:
-            prices (np.array): Array of stock prices
-            features (np.array): Array of feature data
-            initial_balance (float): Initial portfolio value
-            transaction_fee_percent (float): Transaction fee as percentage
-            max_position_size (float): Maximum position size as fraction of portfolio
+            prices (np.array): Array of historical prices
+            features (np.array): Array of features for each time step
+            initial_balance (float): Initial cash balance
+            transaction_fee_percent (float): Percentage of transaction value to be charged as fee
+            max_position_size (float): Maximum position size as a fraction of portfolio value
         """
-        super().__init__()
-        self.prices = prices
-        self.features = features
-        self.initial_balance = initial_balance
-        self.transaction_fee_percent = transaction_fee_percent
-        self.max_position_size = max_position_size  # Maximum position size as fraction of portfolio
+        super(TradingEnvironment, self).__init__()
+        
+        # Input validation
+        if len(prices) != len(features):
+            raise ValueError("Prices and features must have the same length")
+        if initial_balance <= 0:
+            raise ValueError("Initial balance must be positive")
+        if not 0 <= transaction_fee_percent <= 1:
+            raise ValueError("Transaction fee must be between 0 and 1")
+        if not all(p >= 0 for p in prices):
+            raise ValueError("All prices must be non-negative")
+        
+        self.prices = np.array(prices, dtype=np.float32)
+        self.features = np.array(features, dtype=np.float32)
+        self.initial_balance = float(initial_balance)
+        self.transaction_fee_percent = float(transaction_fee_percent)
+        self.max_position_size = float(max_position_size)
         
         # Set minimum price to prevent division by zero
         self.min_price = 1e-3
@@ -352,7 +356,7 @@ class TradingEnvironment(gym.Env):
         # Initialize tracking variables
         self._total_shares_bought = 0
         self._total_shares_sold = 0
-        self._total_net_worth = initial_balance
+        self._total_net_worth = self.initial_balance
         self._last_trade_step = 0
         self._min_trade_interval = 5  # Minimum steps between trades
         
@@ -417,17 +421,11 @@ class TradingEnvironment(gym.Env):
         Returns:
             float: Maximum number of shares that can be purchased
         """
-        # Prevent division by zero
-        if price <= self.min_price:
+        if price <= 0:
             return 0
             
         # Calculate max shares including transaction fee
         max_shares = cash * (1 - fee) / price
-        
-        # Apply position size limit
-        portfolio_value = self._get_portfolio_value()
-        max_position_value = portfolio_value * self.max_position_size
-        max_shares = min(max_shares, max_position_value / price)
         
         return max_shares
     
@@ -444,25 +442,17 @@ class TradingEnvironment(gym.Env):
         # Get current portfolio value
         current_value = self._get_portfolio_value()
         
-        # Calculate base reward (percentage change)
+        # Calculate reward (percentage change)
         if previous_net_worth > 0:
-            base_reward = (current_value - previous_net_worth) / previous_net_worth
+            reward = (current_value - previous_net_worth) / previous_net_worth
         else:
-            base_reward = 0
+            reward = 0
             
-        # Add trading cost penalty for frequent trading
-        steps_since_last_trade = self.current_step - self._last_trade_step
-        if steps_since_last_trade < self._min_trade_interval:
-            base_reward -= 0.001  # Small penalty for trading too frequently
-            
-        # Normalize reward to prevent extreme values
-        normalized_reward = np.tanh(base_reward)  # Scale to [-1, 1]
-        
-        return normalized_reward
+        return reward
     
     def step(self, action):
         """
-        Update environment state based on agent action with safety checks
+        Execute one time step within the environment.
         
         Args:
             action (np.array): Action to take (percentage of portfolio to buy/sell)
@@ -473,14 +463,11 @@ class TradingEnvironment(gym.Env):
         # Calculate portfolio value before taking action
         previous_net_worth = self._get_portfolio_value()
         
-        # Ensure action is in the correct format
+        # Ensure action is in the correct format and clip to valid range
         action_value = float(action[0])
-        
-        # Clip action to valid range [-1, 1]
         action_value = max(min(action_value, 1.0), -1.0)
         
-        # Store the previous step and action
-        prev_step = self.current_step
+        # Store the previous action
         self.prev_action = action_value
         
         # Process the action based on sign and magnitude
@@ -493,7 +480,7 @@ class TradingEnvironment(gym.Env):
             
             if max_shares > 0:
                 # Calculate actual cost including fees
-                actual_cost = max_shares * self.current_price * (1 + self.transaction_fee_percent)
+                actual_cost = cash_to_spend
                 
                 # Update portfolio
                 self.cash_balance -= actual_cost
@@ -507,10 +494,12 @@ class TradingEnvironment(gym.Env):
             
             if shares_to_sell > 0 and self.shares_held > 0:
                 # Calculate revenue after fees
-                sell_revenue = shares_to_sell * self.current_price * (1 - self.transaction_fee_percent)
+                gross_revenue = shares_to_sell * self.current_price
+                fee = gross_revenue * self.transaction_fee_percent
+                net_revenue = gross_revenue - fee
                 
                 # Update portfolio
-                self.cash_balance += sell_revenue
+                self.cash_balance += net_revenue
                 self.shares_held -= shares_to_sell
                 self._total_shares_sold += shares_to_sell
                 self._last_trade_step = self.current_step
@@ -518,36 +507,33 @@ class TradingEnvironment(gym.Env):
                 # Can't sell if we don't have shares - treat as hold
                 action_value = 0
         
-        # Update current step with bounds checking
+        # Move to next step
         self.current_step += 1
         
-        # Get the new price
-        if self.current_step < len(self.prices):
-            self.current_price = self.prices[self.current_step]
-        
         # Check if we've reached the end of our data
-        terminated = self.current_step >= self.max_steps
+        terminated = self.current_step >= len(self.prices) - 1
         truncated = False
         
         # If we've reached the end, don't increment further
         if terminated:
-            self.current_step = self.max_steps
+            self.current_step = len(self.prices) - 1
         
-        # Calculate net worth after taking the action and with the new price
-        new_net_worth = self._get_portfolio_value()
-        self._total_net_worth = new_net_worth
+        # Update the current price
+        self.current_price = self.prices[self.current_step]
         
-        # Calculate reward based on performance
+        # Calculate net worth after action
+        current_net_worth = self._get_portfolio_value()
+        self._total_net_worth = current_net_worth
+        
+        # Calculate reward
         reward = self._calculate_reward(previous_net_worth)
         
         # Get observation and info
-        observation = self._get_observation()
+        obs = self._get_observation()
         info = self._get_info()
-        
-        # Include actual action in info
         info['actual_action'] = action_value
         
-        return observation, reward, terminated, truncated, info
+        return obs, reward, terminated, truncated, info
     
     def _get_observation(self):
         """

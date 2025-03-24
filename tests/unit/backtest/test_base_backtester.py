@@ -19,26 +19,31 @@ class TestBaseBacktester:
         """Test that the BaseBacktester can be inherited from and extended"""
         # Create a concrete subclass with all methods implemented
         class CompleteBacktester(BaseBacktester):
-            def backtest_model(self, model_name, test_start_date, test_end_date, data_source, 
-                               data_fetcher_factory, trading_env_class, **kwargs):
+            def backtest_model(self, model_path, symbol, test_start, test_end, data_source, env_class):
                 return {"result": "mocked"}
                 
-            def get_market_performance(self, symbol, test_start_date, test_end_date, data_source, 
-                                       data_fetcher_factory, **kwargs):
-                return MagicMock()
-                
-            def plot_comparison(self, results_dict, market_performance, test_start_date, test_end_date, **kwargs):
+            def plot_comparison(self, returns_df, benchmark_results, symbol):
                 return "/path/to/chart.png"
+
+            def save_results(self, results, file_path):
+                return file_path
+
+            def load_results(self, file_path):
+                return {"loaded": "results"}
         
         # Create an instance
         backtester = CompleteBacktester()
         
         # Test that the implementation can be used without errors
-        result = backtester.backtest_model("model", "2020-01-01", "2020-12-31", "yahoo", MagicMock(), MagicMock())
+        result = backtester.backtest_model("model", "AAPL", "2020-01-01", "2020-12-31", "yahoo", MagicMock())
         assert isinstance(result, dict)
         
-        market_perf = backtester.get_market_performance("AAPL", "2020-01-01", "2020-12-31", "yahoo", MagicMock())
-        assert market_perf is not None
-        
-        chart_path = backtester.plot_comparison({}, MagicMock(), "2020-01-01", "2020-12-31")
-        assert isinstance(chart_path, str) 
+        chart_path = backtester.plot_comparison({}, {}, "AAPL")
+        assert isinstance(chart_path, str)
+
+        # Test save and load results
+        save_path = backtester.save_results({}, "test.json")
+        assert isinstance(save_path, str)
+
+        loaded_results = backtester.load_results("test.json")
+        assert isinstance(loaded_results, dict) 
