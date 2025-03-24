@@ -128,7 +128,7 @@ class Backtester(BaseBacktester):
             done = terminated or truncated
             
             # Store the portfolio value
-            portfolio_values.append(info['total_net_worth'])
+            portfolio_values.append(info['portfolio_value'])
         
         # Store results in the dataframe
         returns_df['portfolio_value'] = portfolio_values
@@ -273,7 +273,56 @@ class Backtester(BaseBacktester):
         
         return plot_path
 
-
-if __name__ == "__main__":
-    # Example usage
-    pass 
+    def save_results(self, results, file_path):
+        """
+        Save backtest results to a file.
+        
+        Args:
+            results (dict): Backtest results to save.
+            file_path (str): Path to save the results.
+            
+        Returns:
+            str: Path to the saved file.
+        """
+        import json
+        
+        # Convert any non-serializable objects to serializable format
+        serializable_results = {}
+        for key, value in results.items():
+            if key == 'returns':
+                # Convert DataFrame to dict
+                serializable_results[key] = value.to_dict() if hasattr(value, 'to_dict') else value
+            else:
+                serializable_results[key] = value
+        
+        # Save to file
+        with open(file_path, 'w') as f:
+            json.dump(serializable_results, f, indent=4)
+        
+        print(f"Results saved to {file_path}")
+        return file_path
+    
+    def load_results(self, file_path):
+        """
+        Load backtest results from a file.
+        
+        Args:
+            file_path (str): Path to the results file.
+            
+        Returns:
+            dict: Loaded backtest results.
+        """
+        import json
+        
+        # Load from file
+        with open(file_path, 'r') as f:
+            results = json.load(f)
+        
+        # Convert serialized DataFrames back to DataFrames if needed
+        if 'returns' in results and isinstance(results['returns'], dict):
+            try:
+                results['returns'] = pd.DataFrame.from_dict(results['returns'])
+            except Exception as e:
+                print(f"Warning: Could not convert 'returns' back to DataFrame: {e}")
+        
+        return results 
