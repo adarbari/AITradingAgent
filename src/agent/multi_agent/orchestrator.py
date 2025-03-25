@@ -15,6 +15,7 @@ from .market_analysis_agent import MarketAnalysisAgent
 from .risk_assessment_agent import RiskAssessmentAgent
 from .portfolio_management_agent import PortfolioManagementAgent
 from .execution_agent import ExecutionAgent
+from .sentiment_analysis_agent import SentimentAnalysisAgent
 from src.data import DataManager
 
 class SystemState(BaseModel):
@@ -92,6 +93,12 @@ class TradingAgentOrchestrator:
             verbose=self.verbose
         )
         
+        # Sentiment Analysis Agent
+        agents["sentiment_analysis"] = SentimentAnalysisAgent(
+            data_manager=self.data_manager,
+            verbose=self.verbose
+        )
+        
         # Risk Assessment Agent
         agents["risk_assessment"] = RiskAssessmentAgent(
             data_manager=self.data_manager,
@@ -111,7 +118,6 @@ class TradingAgentOrchestrator:
         )
         
         # TODO: Add more agents as they are implemented
-        # agents["sentiment_analysis"] = SentimentAnalysisAgent(...)
         # agents["strategy"] = StrategyAgent(...)
         
         return agents
@@ -128,12 +134,12 @@ class TradingAgentOrchestrator:
         
         # Add nodes for each agent
         workflow.add_node("market_analysis", self._run_market_analysis_agent)
+        workflow.add_node("sentiment_analysis", self._run_sentiment_analysis_agent)
         workflow.add_node("risk_assessment", self._run_risk_assessment_agent)
         workflow.add_node("portfolio_management", self._run_portfolio_management_agent)
         workflow.add_node("execution", self._run_execution_agent)
         
         # TODO: Add more nodes as more agents are implemented
-        # workflow.add_node("sentiment_analysis", self._run_sentiment_analysis_agent)
         # workflow.add_node("strategy", self._run_strategy_agent)
         
         # Add an end node for final processing
@@ -150,14 +156,10 @@ class TradingAgentOrchestrator:
         )
         
         # Define the rest of the edges (flow between agents)
-        workflow.add_edge("market_analysis", "risk_assessment")
+        workflow.add_edge("market_analysis", "sentiment_analysis")
+        workflow.add_edge("sentiment_analysis", "risk_assessment")
         workflow.add_edge("risk_assessment", "portfolio_management")
         workflow.add_edge("execution", "finalize")
-        
-        # TODO: Update edges as more agents are implemented
-        # workflow.add_edge("market_analysis", "sentiment_analysis")
-        # workflow.add_edge("sentiment_analysis", "strategy")
-        # workflow.add_edge("strategy", "risk")
         
         # Set the entry point
         workflow.set_entry_point("market_analysis")
@@ -221,6 +223,61 @@ class TradingAgentOrchestrator:
         
         return state
     
+    def _run_sentiment_analysis_agent(self, state: SystemState) -> SystemState:
+        """
+        Run the sentiment analysis agent with the current state.
+        
+        Args:
+            state (SystemState): Current system state
+            
+        Returns:
+            SystemState: Updated system state
+        """
+        if self.verbose > 0:
+            print("Running Sentiment Analysis Agent...")
+        
+        # Get the agent
+        agent = self.agents["sentiment_analysis"]
+        
+        # Prepare input for the agent
+        agent_input = AgentInput(
+            request=state.request,
+            context={
+                "symbol": state.symbol,
+                "date_range": {
+                    "start_date": state.start_date,
+                    "end_date": state.end_date
+                },
+                "market_analysis": state.analysis_data  # Pass market analysis as context
+            }
+        )
+        
+        # Run the agent
+        output = agent.process(agent_input)
+        
+        # Store the output in the state
+        state.agent_outputs["sentiment_analysis"] = {
+            "response": output.response,
+            "data": output.data,
+            "confidence": output.confidence
+        }
+        
+        # Update the agent name in state
+        state.current_agent = "sentiment_analysis"
+        
+        # Extract and store sentiment data
+        if output.data:
+            state.sentiment_data = output.data
+        
+        # Save interaction to history
+        state.history.append({
+            "agent": "sentiment_analysis",
+            "input": agent_input.dict(),
+            "output": output.dict()
+        })
+        
+        return state
+    
     def _run_risk_assessment_agent(self, state: SystemState) -> SystemState:
         """
         Run the risk assessment agent with the current state.
@@ -249,6 +306,10 @@ class TradingAgentOrchestrator:
         # Add market analysis data to the context if available
         if state.analysis_data:
             context["market_analysis"] = state.analysis_data
+            
+        # Add sentiment data to the context if available
+        if state.sentiment_data:
+            context["sentiment_data"] = state.sentiment_data
         
         # Add portfolio data to the context if available
         if state.portfolio:
@@ -495,12 +556,14 @@ class TradingAgentOrchestrator:
         """
         # Extract agent outputs
         market_analysis = state.agent_outputs.get("market_analysis", {})
+        sentiment_analysis = state.agent_outputs.get("sentiment_analysis", {})
         risk_assessment = state.agent_outputs.get("risk_assessment", {})
         portfolio_management = state.agent_outputs.get("portfolio_management", {})
         execution = state.agent_outputs.get("execution", {})
         
         # Get confidence values
         market_confidence = market_analysis.get("confidence", 0.0)
+        sentiment_confidence = sentiment_analysis.get("confidence", 0.0) if sentiment_analysis else 0.0
         risk_confidence = risk_assessment.get("confidence", 0.0)
         portfolio_confidence = portfolio_management.get("confidence", 0.0) if portfolio_management else 0.0
         execution_confidence = execution.get("confidence", 0.0) if execution else 0.0
@@ -740,6 +803,9 @@ class TradingAgentOrchestrator:
             market_analysis = final_state.agent_outputs.get("market_analysis", {})
             analysis_text = market_analysis.get("response", "No market analysis available.")
             
+            sentiment_analysis = final_state.agent_outputs.get("sentiment_analysis", {})
+            sentiment_text = sentiment_analysis.get("response", "No sentiment analysis available.")
+            
             risk_assessment = final_state.agent_outputs.get("risk_assessment", {})
             risk_text = risk_assessment.get("response", "No risk assessment available.")
             
@@ -762,6 +828,7 @@ class TradingAgentOrchestrator:
                 "explanation": final_state.explanation,
                 "recommended_actions": final_state.recommended_actions if final_state.recommended_actions else [],
                 "analysis": analysis_text,
+                "sentiment": sentiment_text,
                 "risk_assessment": risk_text,
                 "portfolio_management": portfolio_text if final_state.portfolio else None,
                 "execution": execution_text if final_state.execution_plan else None
@@ -771,6 +838,9 @@ class TradingAgentOrchestrator:
             if final_state.analysis_data:
                 result["analysis_data"] = final_state.analysis_data
             
+            if final_state.sentiment_data:
+                result["sentiment_data"] = final_state.sentiment_data
+                
             if final_state.risk_assessment:
                 result["risk_data"] = final_state.risk_assessment
                 
