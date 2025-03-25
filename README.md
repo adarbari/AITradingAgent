@@ -157,3 +157,78 @@ python scripts/generate_test.py path/to/your/file.py
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Multi-Asset Portfolio Optimization
+
+The project includes a sophisticated multi-asset portfolio optimization capability that uses Modern Portfolio Theory and sentiment analysis to optimize portfolio allocations.
+
+### Features
+
+- **Efficient Frontier Calculation**: Calculates the efficient frontier showing the optimal risk/return tradeoff.
+- **Multiple Optimization Objectives**: Supports maximizing Sharpe ratio, minimizing volatility, and maximizing returns.
+- **Risk Parity Portfolio**: Implements risk parity allocation where each asset contributes equally to portfolio risk.
+- **Sentiment Integration**: Incorporates news and social media sentiment to adjust expected returns.
+- **Risk Tolerance Profiles**: Supports conservative, moderate, and aggressive risk profiles.
+- **Visualization**: Includes tools to visualize the efficient frontier and compare allocation strategies.
+
+### Example Usage
+
+To optimize a portfolio, you can use the example script:
+
+```bash
+python examples/multi_asset_optimization_example.py
+```
+
+This will run a multi-asset portfolio optimization for a set of popular stocks, compare different risk profiles, and display visualizations of the results.
+
+### Testing
+
+Comprehensive unit and integration tests have been added to ensure the reliability and correctness of the portfolio optimization functionality.
+
+#### Running Tests
+
+You can run all tests using the test runner script:
+
+```bash
+./run_tests.py
+```
+
+To run only unit tests:
+
+```bash
+./run_tests.py --unit
+```
+
+To run only integration tests:
+
+```bash
+./run_tests.py --integration
+```
+
+#### Test Coverage
+
+The tests cover:
+
+1. **Unit Tests**:
+   - PortfolioOptimizer class methods
+   - Different optimization objectives
+   - Sentiment data integration
+   - Constraint handling
+   - Edge cases
+
+2. **Integration Tests**:
+   - End-to-end portfolio optimization workflow
+   - Real data retrieval and processing
+   - Risk parity portfolio calculation
+   - Efficient frontier generation
+   - Sentiment integration workflow
+
+### Dependencies
+
+The portfolio optimization functionality requires the following packages:
+- pandas
+- numpy
+- scipy (for optimization)
+- matplotlib (for visualization)
+
+These dependencies are included in the project's requirements.txt file.

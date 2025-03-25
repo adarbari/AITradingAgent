@@ -7,6 +7,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 from .base_agent import BaseAgent, AgentInput, AgentOutput
+from .portfolio_optimizer import PortfolioOptimizer
 from src.data import DataManager
 
 class PortfolioManagementAgent(BaseAgent):
@@ -18,6 +19,8 @@ class PortfolioManagementAgent(BaseAgent):
     2. Generate rebalancing recommendations
     3. Provide position sizing strategies based on risk metrics
     4. Monitor portfolio diversification and concentration risk
+    5. Perform multi-asset portfolio optimization using Modern Portfolio Theory
+    6. Incorporate sentiment analysis into portfolio optimization
     """
     
     def __init__(self, data_manager: DataManager, verbose: int = 0):
@@ -41,6 +44,9 @@ class PortfolioManagementAgent(BaseAgent):
             "moderate": {"max_position_size": 0.08, "max_sector_exposure": 0.30, "volatility_target": 0.15},
             "aggressive": {"max_position_size": 0.12, "max_sector_exposure": 0.40, "volatility_target": 0.25}
         }
+        
+        # Initialize portfolio optimizer with default risk-free rate
+        self.portfolio_optimizer = PortfolioOptimizer(risk_free_rate=0.02, verbose=verbose)
     
     def process(self, input_data: AgentInput) -> AgentOutput:
         """
@@ -55,6 +61,15 @@ class PortfolioManagementAgent(BaseAgent):
         if self.verbose > 0:
             print(f"Processing portfolio management request: {input_data.request}")
         
+        # Check if this is a portfolio optimization request
+        request_lower = input_data.request.lower()
+        if any(keyword in request_lower for keyword in [
+            "optimize portfolio", "portfolio optimization", "efficient frontier", 
+            "multi-asset", "multi asset", "sharpe ratio", "modern portfolio theory"
+        ]):
+            return self.process_portfolio_optimization_request(input_data)
+        
+        # Otherwise continue with original portfolio management logic
         # Extract portfolio from context if available
         portfolio = None
         if input_data.context and "portfolio" in input_data.context:
@@ -124,61 +139,51 @@ class PortfolioManagementAgent(BaseAgent):
             confidence=0.85
         )
     
-    def _extract_risk_tolerance(self, text: str) -> Optional[str]:
+    def _extract_risk_tolerance(self, request: str) -> Optional[str]:
         """
-        Extract risk tolerance level from text.
+        Extract risk tolerance from the user request.
         
         Args:
-            text (str): Text to extract from
+            request (str): User request
             
         Returns:
-            Optional[str]: Extracted risk tolerance or None
+            str or None: Extracted risk tolerance or None if not found
         """
-        import re
+        request_lower = request.lower()
         
-        # Look for risk tolerance keywords
-        conservative_pattern = r'\b(conservative|low[- ]risk|cautious|safe)\b'
-        moderate_pattern = r'\b(moderate|medium[- ]risk|balanced)\b'
-        aggressive_pattern = r'\b(aggressive|high[- ]risk|growth)\b'
-        
-        if re.search(conservative_pattern, text, re.IGNORECASE):
+        # Check for risk tolerance keywords
+        if "conservative" in request_lower:
             return "conservative"
-        elif re.search(aggressive_pattern, text, re.IGNORECASE):
+        elif "aggressive" in request_lower:
             return "aggressive"
-        elif re.search(moderate_pattern, text, re.IGNORECASE):
+        elif "moderate" in request_lower or "balanced" in request_lower:
             return "moderate"
         
         return None
     
-    def _extract_rebalance_frequency(self, text: str) -> Optional[str]:
+    def _extract_rebalance_frequency(self, request: str) -> Optional[str]:
         """
-        Extract rebalancing frequency from text.
+        Extract rebalancing frequency from the user request.
         
         Args:
-            text (str): Text to extract from
+            request (str): User request
             
         Returns:
-            Optional[str]: Extracted rebalancing frequency or None
+            str or None: Extracted rebalancing frequency or None if not found
         """
-        import re
+        request_lower = request.lower()
         
-        # Look for rebalancing frequency keywords
-        daily_pattern = r'\b(daily|every day)\b'
-        weekly_pattern = r'\b(weekly|every week)\b'
-        monthly_pattern = r'\b(monthly|every month)\b'
-        quarterly_pattern = r'\b(quarterly|every quarter|3[- ]month|three[- ]month)\b'
-        yearly_pattern = r'\b(yearly|annual|every year)\b'
-        
-        if re.search(daily_pattern, text, re.IGNORECASE):
+        # Check for frequency keywords
+        if "daily" in request_lower:
             return "daily"
-        elif re.search(weekly_pattern, text, re.IGNORECASE):
+        elif "weekly" in request_lower:
             return "weekly"
-        elif re.search(monthly_pattern, text, re.IGNORECASE):
+        elif "monthly" in request_lower:
             return "monthly"
-        elif re.search(quarterly_pattern, text, re.IGNORECASE):
+        elif "quarterly" in request_lower:
             return "quarterly"
-        elif re.search(yearly_pattern, text, re.IGNORECASE):
-            return "yearly"
+        elif "annually" in request_lower or "yearly" in request_lower:
+            return "annually"
         
         return None
     
@@ -608,4 +613,390 @@ Rebalancing Recommendations ({risk_tolerance.capitalize()} Profile):
                 "value": float(value.replace(',', ''))
             })
         
-        return recommendations 
+        return recommendations
+    
+    def optimize_multi_asset_portfolio(self, 
+                                      symbols: List[str], 
+                                      start_date: str, 
+                                      end_date: str,
+                                      risk_tolerance: str = "moderate",
+                                      optimization_objective: str = "sharpe",
+                                      include_sentiment: bool = True) -> Dict[str, Any]:
+        """
+        Optimize a multi-asset portfolio using Modern Portfolio Theory.
+        
+        Args:
+            symbols (List[str]): List of symbols to include in the portfolio
+            start_date (str): Start date for historical data
+            end_date (str): End date for historical data
+            risk_tolerance (str): Risk tolerance level
+            optimization_objective (str): Optimization objective
+            include_sentiment (bool): Whether to incorporate sentiment data
+            
+        Returns:
+            Dict[str, Any]: Optimized portfolio details
+        """
+        if self.verbose > 0:
+            print(f"Optimizing portfolio for {len(symbols)} assets with {optimization_objective} objective")
+        
+        # Map risk tolerance to constraints
+        risk_params = self.risk_levels.get(risk_tolerance, self.risk_levels["moderate"])
+        
+        # Fetch historical price data for all symbols
+        price_data = {}
+        for symbol in symbols:
+            try:
+                data = self.data_manager.get_market_data(symbol, start_date, end_date, include_indicators=False)
+                if data is not None and not data.empty:
+                    price_data[symbol] = data['Close']
+            except Exception as e:
+                if self.verbose > 0:
+                    print(f"Error fetching data for {symbol}: {e}")
+        
+        # Check if we have enough data
+        if len(price_data) < 2:
+            if self.verbose > 0:
+                print("Not enough valid symbols with data for optimization")
+            return {
+                "error": "Insufficient data for portfolio optimization",
+                "weights": {symbol: 1.0 / len(symbols) for symbol in symbols}  # Equal weights as fallback
+            }
+        
+        # Create dataframe with all price data
+        prices_df = pd.DataFrame(price_data)
+        
+        # Calculate returns
+        returns_df = prices_df.pct_change().dropna()
+        
+        # Get sentiment data if requested
+        sentiment_scores = None
+        if include_sentiment:
+            sentiment_scores = self._get_sentiment_scores(symbols, start_date, end_date)
+        
+        # Set up constraints based on risk tolerance
+        constraints = {
+            'max_position': risk_params['max_position_size'],
+            'target_volatility': risk_params['volatility_target']
+        }
+        
+        # If we have sector data, add sector constraints
+        if self._has_sector_information(symbols):
+            sector_constraints = self._create_sector_constraints(symbols, risk_params['max_sector_exposure'])
+            constraints['sector_constraints'] = sector_constraints
+        
+        # Set optimization objective based on risk tolerance
+        if optimization_objective == 'auto':
+            if risk_tolerance == 'conservative':
+                optimization_objective = 'min_volatility'
+            elif risk_tolerance == 'aggressive':
+                optimization_objective = 'return'
+            else:
+                optimization_objective = 'sharpe'
+        
+        # Perform optimization
+        optimization_result = self.portfolio_optimizer.optimize_portfolio(
+            returns_df, 
+            constraints=constraints,
+            objective=optimization_objective,
+            sentiment_scores=sentiment_scores
+        )
+        
+        # Generate efficient frontier for visualization
+        try:
+            frontier_data = self.portfolio_optimizer.generate_efficient_frontier(returns_df)
+            optimization_result['efficient_frontier'] = frontier_data
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"Could not generate efficient frontier: {e}")
+        
+        # Add risk parity portfolio for comparison
+        try:
+            risk_parity = self.portfolio_optimizer.calculate_risk_parity_portfolio(returns_df)
+            optimization_result['risk_parity'] = risk_parity
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"Could not calculate risk parity portfolio: {e}")
+        
+        # Format results for better readability
+        formatted_weights = {
+            symbol: round(weight * 100, 2) 
+            for symbol, weight in optimization_result['weights'].items()
+        }
+        optimization_result['formatted_weights'] = formatted_weights
+        
+        return optimization_result
+    
+    def _get_sentiment_scores(self, symbols: List[str], start_date: str, end_date: str) -> Dict[str, float]:
+        """
+        Get sentiment scores for the given symbols.
+        
+        Args:
+            symbols (List[str]): List of symbols
+            start_date (str): Start date
+            end_date (str): End date
+            
+        Returns:
+            Dict[str, float]: Dictionary mapping symbols to sentiment scores
+        """
+        sentiment_scores = {}
+        
+        for symbol in symbols:
+            # Try to get sentiment data from sentiment analysis agent context
+            sentiment_data = None
+            
+            # Check if we have any recent memory with sentiment data for this symbol
+            relevant_memories = self.get_relevant_memories(f"sentiment {symbol}", limit=1)
+            
+            if relevant_memories and "data" in relevant_memories[0]:
+                data = relevant_memories[0]["data"]
+                if isinstance(data, dict) and symbol in data:
+                    sentiment_data = data[symbol]
+            
+            # If not in memory, try to fetch from data manager
+            if sentiment_data is None:
+                try:
+                    # First try news sentiment
+                    news_sentiment = self.data_manager.get_sentiment_data(symbol, start_date, end_date)
+                    if news_sentiment is not None and not news_sentiment.empty:
+                        # Calculate average sentiment score
+                        avg_sentiment = news_sentiment['Sentiment_Score'].mean()
+                        sentiment_scores[symbol] = avg_sentiment
+                        continue
+                    
+                    # Then try social sentiment
+                    social_sentiment = self.data_manager.get_social_sentiment(symbol, start_date, end_date)
+                    if social_sentiment is not None and not social_sentiment.empty:
+                        # Calculate average sentiment score
+                        avg_sentiment = social_sentiment['Sentiment_Score'].mean()
+                        sentiment_scores[symbol] = avg_sentiment
+                except Exception as e:
+                    if self.verbose > 1:
+                        print(f"Error getting sentiment data for {symbol}: {e}")
+        
+        return sentiment_scores
+    
+    def _has_sector_information(self, symbols: List[str]) -> bool:
+        """
+        Check if sector information is available for the symbols.
+        
+        Args:
+            symbols (List[str]): List of symbols
+            
+        Returns:
+            bool: True if sector information is available
+        """
+        # In a real implementation, we would check if we have sector data
+        # For now, return False for simplicity
+        return False
+    
+    def _create_sector_constraints(self, symbols: List[str], max_sector_exposure: float) -> Dict[str, Tuple[List[int], float]]:
+        """
+        Create sector constraints for portfolio optimization.
+        
+        Args:
+            symbols (List[str]): List of symbols
+            max_sector_exposure (float): Maximum exposure to any single sector
+            
+        Returns:
+            Dict[str, Tuple[List[int], float]]: Sector constraints
+        """
+        # In a real implementation, we would fetch sector data and create constraints
+        # For now, return an empty dict
+        return {}
+    
+    def format_multi_asset_optimization_response(self, optimization_result: Dict[str, Any], 
+                                               risk_tolerance: str) -> str:
+        """
+        Format multi-asset portfolio optimization results into human-readable text.
+        
+        Args:
+            optimization_result (Dict[str, Any]): Optimization results
+            risk_tolerance (str): Risk tolerance level
+            
+        Returns:
+            str: Formatted response
+        """
+        if "error" in optimization_result:
+            return f"Error in portfolio optimization: {optimization_result['error']}"
+        
+        # Extract key metrics
+        expected_return = optimization_result.get("return", 0) * 100  # Convert to percentage
+        volatility = optimization_result.get("volatility", 0) * 100  # Convert to percentage
+        sharpe_ratio = optimization_result.get("sharpe_ratio", 0)
+        weights = optimization_result.get("formatted_weights", {})
+        
+        # Sort weights by allocation (descending)
+        sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+        
+        # Build response
+        response = f"""
+## Optimized Portfolio ({risk_tolerance.capitalize()} Risk Profile)
+
+### Key Metrics
+- Expected Annual Return: {expected_return:.2f}%
+- Expected Annual Volatility: {volatility:.2f}%
+- Sharpe Ratio: {sharpe_ratio:.2f}
+- Optimization Method: {optimization_result.get('objective', 'Sharpe Ratio Maximization').capitalize()}
+
+### Recommended Asset Allocation
+"""
+        
+        # Add allocation table
+        for symbol, allocation in sorted_weights:
+            response += f"- {symbol}: {allocation:.2f}%\n"
+        
+        # Add portfolio characteristics based on risk tolerance
+        response += f"\n### Portfolio Characteristics\n"
+        
+        if risk_tolerance == "conservative":
+            response += "- Focus on capital preservation with moderate growth\n"
+            response += "- Lower volatility with more stable returns\n"
+            response += "- Greater diversification across assets\n"
+        elif risk_tolerance == "aggressive":
+            response += "- Focus on maximizing returns with higher risk tolerance\n"
+            response += "- Higher volatility with potential for greater returns\n"
+            response += "- More concentrated positions in high-growth assets\n"
+        else:  # moderate
+            response += "- Balanced approach between growth and capital preservation\n"
+            response += "- Moderate volatility with good return potential\n"
+            response += "- Diversified but with targeted allocation to growth assets\n"
+        
+        # Add note about sentiment data if used
+        if "sentiment_adjusted" in optimization_result and optimization_result["sentiment_adjusted"]:
+            response += "\n### Sentiment Analysis Integration\n"
+            response += "- This portfolio incorporates recent sentiment data for the assets\n"
+            response += "- Allocations are adjusted based on positive/negative sentiment\n"
+            
+            # Add specific sentiment adjustments if available
+            if "sentiment_scores" in optimization_result:
+                response += "- Sentiment Adjustments:\n"
+                for symbol, score in optimization_result["sentiment_scores"].items():
+                    sentiment_text = "positive" if score > 0.1 else "negative" if score < -0.1 else "neutral"
+                    response += f"  - {symbol}: {sentiment_text.capitalize()} ({score:.2f})\n"
+        
+        return response
+        
+    def process_portfolio_optimization_request(self, input_data: AgentInput) -> AgentOutput:
+        """
+        Process portfolio optimization request.
+        
+        Args:
+            input_data (AgentInput): Input data containing request and context
+            
+        Returns:
+            AgentOutput: Portfolio optimization results
+        """
+        if self.verbose > 0:
+            print(f"Processing portfolio optimization request: {input_data.request}")
+        
+        # Extract parameters from request and context
+        symbols = self._extract_symbols_from_request(input_data)
+        if not symbols and input_data.context and "portfolio" in input_data.context:
+            # Extract symbols from portfolio
+            portfolio = input_data.context["portfolio"]
+            symbols = [position.get("symbol") for position in portfolio.get("positions", [])]
+        
+        if not symbols:
+            return AgentOutput(
+                response="Please provide the symbols you want to include in your portfolio.",
+                confidence=0.0
+            )
+        
+        # Extract date range
+        start_date = None
+        end_date = None
+        if input_data.context and "date_range" in input_data.context:
+            date_range = input_data.context["date_range"]
+            start_date = date_range.get("start_date")
+            end_date = date_range.get("end_date")
+        
+        # If dates not provided, default to 1 year of data
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            # Default to 1 year of historical data
+            start_dt = datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=365)
+            start_date = start_dt.strftime("%Y-%m-%d")
+        
+        # Extract risk tolerance
+        risk_tolerance = self._extract_risk_tolerance(input_data.request)
+        if not risk_tolerance and input_data.context and "risk_tolerance" in input_data.context:
+            risk_tolerance = input_data.context["risk_tolerance"]
+        if not risk_tolerance:
+            risk_tolerance = "moderate"  # Default
+        
+        # Extract optimization objective
+        optimization_objective = "auto"  # Default
+        request_lower = input_data.request.lower()
+        if "sharpe" in request_lower:
+            optimization_objective = "sharpe"
+        elif "minimum volatility" in request_lower or "min volatility" in request_lower:
+            optimization_objective = "min_volatility"
+        elif "maximum return" in request_lower or "max return" in request_lower:
+            optimization_objective = "return"
+        elif "risk parity" in request_lower:
+            optimization_objective = "risk_parity"
+        
+        # Check if sentiment data should be included
+        include_sentiment = "sentiment" in request_lower or "news" in request_lower
+        
+        # Run optimization
+        optimization_result = self.optimize_multi_asset_portfolio(
+            symbols=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            risk_tolerance=risk_tolerance,
+            optimization_objective=optimization_objective,
+            include_sentiment=include_sentiment
+        )
+        
+        # If sentiment was used, mark it in the result
+        if include_sentiment:
+            optimization_result["sentiment_adjusted"] = True
+        
+        # Generate response
+        response = self.format_multi_asset_optimization_response(
+            optimization_result=optimization_result,
+            risk_tolerance=risk_tolerance
+        )
+        
+        # Store the optimization in memory
+        self.add_to_memory({
+            "input": input_data.request,
+            "symbols": symbols,
+            "risk_tolerance": risk_tolerance,
+            "optimization_result": optimization_result
+        })
+        
+        return AgentOutput(
+            response=response,
+            data=optimization_result,
+            confidence=0.9
+        )
+    
+    def _extract_symbols_from_request(self, input_data: AgentInput) -> List[str]:
+        """
+        Extract stock symbols from the request.
+        
+        Args:
+            input_data (AgentInput): Input data
+            
+        Returns:
+            List[str]: List of stock symbols
+        """
+        # Extract from context if available
+        if input_data.context and "symbols" in input_data.context:
+            return input_data.context["symbols"]
+        
+        # Otherwise extract from request text
+        import re
+        
+        # Look for ticker symbols (common format: 1-5 uppercase letters)
+        request = input_data.request
+        matches = re.findall(r'\b[A-Z]{1,5}\b', request)
+        
+        # Filter out common words that might be mistaken for tickers
+        common_words = {"A", "I", "CEO", "CFO", "USA", "GDP", "IPO", "AI", "ML"}
+        filtered_matches = [m for m in matches if m not in common_words]
+        
+        return filtered_matches 
