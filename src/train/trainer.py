@@ -3,7 +3,7 @@ Training manager for creating and caching models for various stocks.
 """
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import numpy as np
 import pandas as pd
@@ -274,12 +274,25 @@ class TrainingManager:
         
         Args:
             symbol (str, optional): Symbol to clear cache for, or None for all
-            older_than (str, optional): Clear models older than this date (YYYY-MM-DD)
+            older_than (str or int, optional): Clear models older than this date (YYYY-MM-DD) 
+                                              or number of days before today
             
         Returns:
             int: Number of models removed from cache
         """
         models_to_remove = []
+        
+        # Convert older_than to a datetime object if it's an integer (days)
+        filter_date = None
+        if older_than is not None:
+            if isinstance(older_than, int):
+                filter_date = datetime.now() - timedelta(days=older_than)
+            else:
+                try:
+                    filter_date = datetime.strptime(older_than, "%Y-%m-%d")
+                except ValueError:
+                    if self.verbose > 0:
+                        print(f"Invalid date format for older_than: {older_than}. Should be YYYY-MM-DD or number of days.")
         
         # Filter models to remove
         for model_hash, info in self.cache["models"].items():
@@ -290,10 +303,9 @@ class TrainingManager:
                 continue
             
             # Check date filter
-            if older_than is not None and "created_at" in info:
+            if filter_date is not None and "created_at" in info:
                 try:
                     model_date = datetime.strptime(info["created_at"], "%Y-%m-%d %H:%M:%S")
-                    filter_date = datetime.strptime(older_than, "%Y-%m-%d")
                     if model_date >= filter_date:
                         continue
                 except ValueError:

@@ -10,6 +10,94 @@
       "timesteps": 20000,
       "created_at": "2025-03-24 09:23:45",
       "hash": "f87753d8e86185b7aa9ee476b5dba547"
+    },
+    "e4d3ee498a8a176e9a25d9028092be02": {
+      "model_path": "models/ppo_AAPL_2023_2024_e4d3ee49",
+      "symbol": "AAPL",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:31:06",
+      "hash": "e4d3ee498a8a176e9a25d9028092be02"
+    },
+    "4350b5822126e785c882b2b24080ecef": {
+      "model_path": "models/ppo_AMZN_2023_2024_4350b582",
+      "symbol": "AMZN",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:32:22",
+      "hash": "4350b5822126e785c882b2b24080ecef"
+    },
+    "df689ba057116e1bd74e3ebe9171954e": {
+      "model_path": "models/ppo_GOOG_2023_2024_df689ba0",
+      "symbol": "GOOG",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:34:47",
+      "hash": "df689ba057116e1bd74e3ebe9171954e"
+    },
+    "28bc340e157b09bdb43387440cc2d6ab": {
+      "model_path": "models/ppo_META_2023_2024_28bc340e",
+      "symbol": "META",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:35:29",
+      "hash": "28bc340e157b09bdb43387440cc2d6ab"
+    },
+    "b801be7499aaa7cc57c7abcda6f8b8d6": {
+      "model_path": "models/ppo_NFLX_2023_2024_b801be74",
+      "symbol": "NFLX",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:36:07",
+      "hash": "b801be7499aaa7cc57c7abcda6f8b8d6"
+    },
+    "7d03a70409024e1eda1cc7c6cea98061": {
+      "model_path": "models/ppo_TSLA_2023_2024_7d03a704",
+      "symbol": "TSLA",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:36:45",
+      "hash": "7d03a70409024e1eda1cc7c6cea98061"
+    },
+    "2127cd36d1ce0eb87b059bdc611e781a": {
+      "model_path": "models/ppo_MSFT_2023_2024_2127cd36",
+      "symbol": "MSFT",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:37:22",
+      "hash": "2127cd36d1ce0eb87b059bdc611e781a"
+    },
+    "e9dbee3984e21cacbd56fbfc0f0425ca": {
+      "model_path": "models/ppo_BRK-B_2023_2024_e9dbee39",
+      "symbol": "BRK-B",
+      "train_start": "2023-01-01",
+      "train_end": "2024-12-31",
+      "feature_count": 21,
+      "data_source": "yahoo",
+      "timesteps": 100000,
+      "created_at": "2025-03-24 10:38:01",
+      "hash": "e9dbee3984e21cacbd56fbfc0f0425ca"
     }
   }
 }

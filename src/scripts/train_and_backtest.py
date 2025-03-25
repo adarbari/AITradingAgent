@@ -305,6 +305,92 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
         "portfolio_values_path": portfolio_values_path
     }
 
+def process_ticker(ticker, train_start, train_end, test_start, test_end, models_dir, results_dir, 
+                   timesteps=100000, feature_set="standard", data_source="yahoo", force=False):
+    """
+    Process a single ticker - train and backtest
+    
+    Args:
+        ticker (str): Stock symbol to process
+        train_start (str): Start date for training
+        train_end (str): End date for training
+        test_start (str): Start date for testing
+        test_end (str): End date for testing
+        models_dir (str): Directory to save models
+        results_dir (str): Directory to save results
+        timesteps (int): Number of timesteps to train for
+        feature_set (str): Feature set to use
+        data_source (str): Source of data
+        force (bool): Force retraining
+        
+    Returns:
+        dict: Results dictionary or None if failed
+    """
+    print("=======================")
+    print(f"Processing {ticker}")
+    print("=======================")
+    
+    # Auto-generate model path
+    model_name = f"ppo_{ticker}_{train_start.split('-')[0]}_{train_end.split('-')[0]}"
+    model_path = os.path.join(models_dir, model_name)
+    
+    # Train the model
+    print(f"Training model for {ticker}...")
+    try:
+        model, model_path = train_model(
+            symbol=ticker,
+            train_start=train_start,
+            train_end=train_end,
+            model_path=model_path,
+            timesteps=timesteps,
+            data_source=data_source,
+            force_retrain=force,
+            feature_set=feature_set
+        )
+        
+        if model is None:
+            print(f"Error: Failed to train model for {ticker}")
+            return None
+    except Exception as e:
+        print(f"Error training model for {ticker}: {str(e)}")
+        return None
+    
+    # Backtest the model
+    print(f"Backtesting model for {ticker}...")
+    try:
+        results = backtest_model(
+            model_path=model_path,
+            symbol=ticker,
+            test_start=test_start,
+            test_end=test_end,
+            data_source=data_source,
+            feature_set=feature_set
+        )
+        
+        if results and not results.get('error'):
+            print("\nBacktest Results Summary:")
+            print(f"Symbol: {results['symbol']}")
+            print(f"Test Period: {results['test_period']}")
+            print(f"Initial Value: ${results['initial_value']:.2f}")
+            print(f"Final Value: ${results['final_value']:.2f}")
+            print(f"Strategy Return: {results['strategy_return']*100:.2f}%")
+            print(f"Buy & Hold Return: {results['buy_hold_return']*100:.2f}%")
+            print(f"Outperformance: {results['outperformance']*100:.2f}%")
+            print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
+            print(f"Max Drawdown: {results['max_drawdown']*100:.2f}%")
+            print(f"Total Trades: {results['total_trades']}")
+            print(f"Results saved to {results['plot_path']}")
+            return results
+        elif results and results.get('error'):
+            print(f"Error in backtesting {ticker}: {results['error']}")
+            return None
+        else:
+            print(f"Backtesting failed for {ticker}")
+            return None
+    except Exception as e:
+        print(f"Error backtesting model for {ticker}: {str(e)}")
+        return None
+
 def main():
     """Main function to run the training and backtesting process."""
     parser = argparse.ArgumentParser(description="Train and backtest trading models")
@@ -312,6 +398,8 @@ def main():
     # General arguments
     parser.add_argument("--symbol", type=str, default="AAPL",
                        help="Stock symbol to train on (default: AAPL)")
+    parser.add_argument("--symbols", type=str, nargs='+',
+                       help="Multiple stock symbols to train and backtest (e.g., AAPL GOOG MSFT)")
     parser.add_argument("--data-source", type=str, default="yahoo",
                        choices=["yahoo", "synthetic"],
                        help="Source of data (default: yahoo)")
@@ -343,6 +431,10 @@ def main():
     parser.add_argument("--fee", type=float, default=0.001,
                        help="Transaction fee percentage (default: 0.001)")
     
+    # Batch processing arguments
+    parser.add_argument("--batch", action="store_true",
+                       help="Process all symbols in batch mode")
+    
     # Model arguments
     parser.add_argument("--model-path", type=str,
                        help="Path to load or save model (default: auto-generated)")
@@ -352,6 +444,10 @@ def main():
                        help="Directory to save models (default: models)")
     parser.add_argument("--results-dir", type=str, default="results",
                        help="Directory to save results (default: results)")
+    
+    # Report arguments
+    parser.add_argument("--generate-report", action="store_true",
+                       help="Generate a summary report for all processed tickers")
     
     # Synthetic data arguments
     parser.add_argument("--synthetic-initial-price", type=float, default=100.0,
@@ -363,9 +459,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Normalize data source name for backwards compatibility
-    # No normalization needed anymore since we've standardized on 'yahoo'
-        
     # Create synthetic parameters dict if using synthetic data
     synthetic_params = None
     if args.data_source == "synthetic":
@@ -379,60 +472,233 @@ def main():
     os.makedirs(args.models_dir, exist_ok=True)
     os.makedirs(args.results_dir, exist_ok=True)
     
-    # Auto-generate model path if not provided
-    if not args.model_path:
-        model_name = f"ppo_{args.symbol}_{args.train_start.split('-')[0]}_{args.train_end.split('-')[0]}"
-        args.model_path = os.path.join(args.models_dir, model_name)
+    # Determine symbols to process
+    symbols_to_process = []
     
-    # Train model if requested
-    model = None
-    if args.train:
-        model, args.model_path = train_model(
-            symbol=args.symbol,
-            train_start=args.train_start,
-            train_end=args.train_end,
-            model_path=args.model_path,
-            timesteps=args.timesteps,
-            feature_count=args.feature_count,
-            data_source=args.data_source,
-            synthetic_params=synthetic_params,
-            force_retrain=args.force,
-            feature_set=args.feature_set
-        )
-    
-    # Backtest model if requested
-    if args.backtest:
-        if not args.train and not os.path.exists(args.model_path):
-            print(f"Error: Model file {args.model_path} does not exist. Train a model first or provide a valid model path.")
-            return
-        
-        model_path = args.model_path
-        results = backtest_model(
-            model_path=model_path,
-            symbol=args.symbol,
-            test_start=args.test_start,
-            test_end=args.test_end,
-            data_source=args.data_source,
-            feature_set=args.feature_set
-        )
-        
-        if results and not results.get('error'):
-            print("\nBacktest Results Summary:")
-            print(f"Symbol: {results['symbol']}")
-            print(f"Test Period: {results['test_period']}")
-            print(f"Initial Value: ${results['initial_value']:.2f}")
-            print(f"Final Value: ${results['final_value']:.2f}")
-            print(f"Strategy Return: {results['strategy_return']*100:.2f}%")
-            print(f"Buy & Hold Return: {results['buy_hold_return']*100:.2f}%")
-            print(f"Outperformance: {results['outperformance']*100:.2f}%")
-            print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
-            print(f"Max Drawdown: {results['max_drawdown']*100:.2f}%")
-            print(f"Total Trades: {results['total_trades']}")
-            print(f"Results saved to {results['plot_path']}")
-        elif results and results.get('error'):
-            print(f"Error in backtesting: {results['error']}")
+    if args.batch:
+        if args.symbols:
+            symbols_to_process = args.symbols
         else:
-            print("Backtesting failed to return valid results.")
+            print("Error: --batch requires at least one symbol. Use --symbols to specify symbols.")
+            return
+    else:
+        symbols_to_process = [args.symbol]
+    
+    # Process all tickers in batch mode or single mode
+    results_list = []
+    
+    if args.batch:
+        print(f"Starting batch processing for {len(symbols_to_process)} tickers")
+        print(f"Training period: {args.train_start} to {args.train_end}")
+        print(f"Testing period: {args.test_start} to {args.test_end}")
+        
+        for ticker in symbols_to_process:
+            results = process_ticker(
+                ticker=ticker,
+                train_start=args.train_start,
+                train_end=args.train_end,
+                test_start=args.test_start,
+                test_end=args.test_end,
+                models_dir=args.models_dir,
+                results_dir=args.results_dir,
+                timesteps=args.timesteps,
+                feature_set=args.feature_set,
+                data_source=args.data_source,
+                force=args.force
+            )
+            
+            if results:
+                results_list.append(results)
+                
+        print(f"Batch processing completed for {len(results_list)} of {len(symbols_to_process)} tickers")
+        
+        # Generate summary report if requested
+        if args.generate_report and results_list:
+            report_path = generate_summary_report(results_list, args.results_dir)
+            print(f"Summary report generated: {report_path}")
+    
+    else:
+        # Single ticker processing - maintain backward compatibility
+        # Auto-generate model path if not provided
+        if not args.model_path:
+            model_name = f"ppo_{args.symbol}_{args.train_start.split('-')[0]}_{args.train_end.split('-')[0]}"
+            args.model_path = os.path.join(args.models_dir, model_name)
+        
+        # Train model if requested
+        model = None
+        if args.train:
+            model, args.model_path = train_model(
+                symbol=args.symbol,
+                train_start=args.train_start,
+                train_end=args.train_end,
+                model_path=args.model_path,
+                timesteps=args.timesteps,
+                feature_count=args.feature_count,
+                data_source=args.data_source,
+                synthetic_params=synthetic_params,
+                force_retrain=args.force,
+                feature_set=args.feature_set
+            )
+        
+        # Backtest model if requested
+        if args.backtest:
+            if not args.train and not os.path.exists(args.model_path):
+                print(f"Error: Model file {args.model_path} does not exist. Train a model first or provide a valid model path.")
+                return
+            
+            model_path = args.model_path
+            results = backtest_model(
+                model_path=model_path,
+                symbol=args.symbol,
+                test_start=args.test_start,
+                test_end=args.test_end,
+                data_source=args.data_source,
+                feature_set=args.feature_set
+            )
+            
+            if results and not results.get('error'):
+                print("\nBacktest Results Summary:")
+                print(f"Symbol: {results['symbol']}")
+                print(f"Test Period: {results['test_period']}")
+                print(f"Initial Value: ${results['initial_value']:.2f}")
+                print(f"Final Value: ${results['final_value']:.2f}")
+                print(f"Strategy Return: {results['strategy_return']*100:.2f}%")
+                print(f"Buy & Hold Return: {results['buy_hold_return']*100:.2f}%")
+                print(f"Outperformance: {results['outperformance']*100:.2f}%")
+                print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
+                print(f"Max Drawdown: {results['max_drawdown']*100:.2f}%")
+                print(f"Total Trades: {results['total_trades']}")
+                print(f"Results saved to {results['plot_path']}")
+            elif results and results.get('error'):
+                print(f"Error in backtesting: {results['error']}")
+            else:
+                print("Backtesting failed to return valid results.")
+
+def generate_summary_report(results_list, results_dir):
+    """
+    Generate a summary report of all backtest results
+    
+    Args:
+        results_list (list): List of result dictionaries
+        results_dir (str): Directory to save the report
+        
+    Returns:
+        str: Path to the generated report
+    """
+    # Create summary DataFrame
+    summary_data = []
+    for result in results_list:
+        summary_data.append({
+            'Symbol': result['symbol'],
+            'Test Period': result['test_period'],
+            'Initial Value': f"${result['initial_value']:.2f}",
+            'Final Value': f"${result['final_value']:.2f}",
+            'Strategy Return': f"{result['strategy_return']*100:.2f}%",
+            'Buy & Hold Return': f"{result['buy_hold_return']*100:.2f}%",
+            'Outperformance': f"{result['outperformance']*100:.2f}%",
+            'Sharpe Ratio': f"{result['sharpe_ratio']:.2f}",
+            'Max Drawdown': f"{result['max_drawdown']*100:.2f}%",
+            'Total Trades': result['total_trades']
+        })
+    
+    # Create DataFrame and sort by outperformance
+    summary_df = pd.DataFrame(summary_data)
+    
+    # Extract numeric values for sorting
+    summary_df['Outperformance_numeric'] = summary_df['Outperformance'].str.rstrip('%').astype(float)
+    summary_df = summary_df.sort_values('Outperformance_numeric', ascending=False)
+    summary_df = summary_df.drop('Outperformance_numeric', axis=1)
+    
+    # Save to CSV
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = os.path.join(results_dir, f'summary_report_{timestamp}.csv')
+    summary_df.to_csv(report_path, index=False)
+    
+    # Generate a more detailed HTML report with visualizations
+    html_report_path = os.path.join(results_dir, f'summary_report_{timestamp}.html')
+    
+    # Create HTML content
+    html_content = f"""
+    <html>
+    <head>
+        <title>Trading Model Backtest Results</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            h1 {{ color: #2c3e50; }}
+            table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
+            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+            th {{ background-color: #3498db; color: white; }}
+            tr:hover {{ background-color: #f5f5f5; }}
+            .positive {{ color: green; }}
+            .negative {{ color: red; }}
+        </style>
+    </head>
+    <body>
+        <h1>Trading Model Backtest Summary Report</h1>
+        <p>Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+        <p>Training period: {results_list[0]['test_period'].split(' to ')[0] if results_list else 'N/A'}</p>
+        <p>Testing period: {results_list[0]['test_period'] if results_list else 'N/A'}</p>
+        
+        <h2>Performance Summary</h2>
+        <table>
+            <tr>
+                <th>Symbol</th>
+                <th>Strategy Return</th>
+                <th>Buy & Hold Return</th>
+                <th>Outperformance</th>
+                <th>Sharpe Ratio</th>
+                <th>Max Drawdown</th>
+                <th>Total Trades</th>
+            </tr>
+    """
+    
+    # Add rows to HTML table
+    for _, row in summary_df.iterrows():
+        # Determine if outperformance is positive or negative
+        outperf_class = 'positive' if float(row['Outperformance'].rstrip('%')) > 0 else 'negative'
+        
+        html_content += f"""
+            <tr>
+                <td>{row['Symbol']}</td>
+                <td>{row['Strategy Return']}</td>
+                <td>{row['Buy & Hold Return']}</td>
+                <td class="{outperf_class}">{row['Outperformance']}</td>
+                <td>{row['Sharpe Ratio']}</td>
+                <td>{row['Max Drawdown']}</td>
+                <td>{row['Total Trades']}</td>
+            </tr>
+        """
+    
+    html_content += """
+        </table>
+        
+        <h2>Individual Backtest Results</h2>
+    """
+    
+    # Add links to individual backtest results
+    for result in results_list:
+        plot_path = os.path.basename(result['plot_path'])
+        html_content += f"""
+        <h3>{result['symbol']}</h3>
+        <img src="../{result['symbol']}/{plot_path}" alt="{result['symbol']} Backtest" style="width: 100%; max-width: 800px;">
+        <p>Initial Value: {result['initial_value']:.2f}</p>
+        <p>Final Value: {result['final_value']:.2f}</p>
+        <p>Strategy Return: {result['strategy_return']*100:.2f}%</p>
+        <p>Buy & Hold Return: {result['buy_hold_return']*100:.2f}%</p>
+        <p>Outperformance: {result['outperformance']*100:.2f}%</p>
+        <hr>
+        """
+    
+    html_content += """
+    </body>
+    </html>
+    """
+    
+    # Write HTML to file
+    with open(html_report_path, 'w') as f:
+        f.write(html_content)
+    
+    return report_path
 
 
 if __name__ == "__main__":
