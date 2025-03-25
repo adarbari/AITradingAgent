@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, END
 
 from .base_agent import BaseAgent, AgentInput, AgentOutput
 from .market_analysis_agent import MarketAnalysisAgent
+from .risk_assessment_agent import RiskAssessmentAgent
 from src.data import DataManager
 
 class SystemState(BaseModel):
@@ -79,10 +80,15 @@ class TradingAgentOrchestrator:
             verbose=self.verbose
         )
         
+        # Risk Assessment Agent
+        agents["risk_assessment"] = RiskAssessmentAgent(
+            data_manager=self.data_manager,
+            verbose=self.verbose
+        )
+        
         # TODO: Add more agents as they are implemented
         # agents["sentiment_analysis"] = SentimentAnalysisAgent(...)
         # agents["strategy"] = StrategyAgent(...)
-        # agents["risk"] = RiskManagementAgent(...)
         # agents["execution"] = ExecutionAgent(...)
         
         return agents
@@ -99,19 +105,20 @@ class TradingAgentOrchestrator:
         
         # Add nodes for each agent
         workflow.add_node("market_analysis", self._run_market_analysis_agent)
+        workflow.add_node("risk_assessment", self._run_risk_assessment_agent)
         
         # TODO: Add more nodes as more agents are implemented
         # workflow.add_node("sentiment_analysis", self._run_sentiment_analysis_agent)
         # workflow.add_node("strategy", self._run_strategy_agent)
-        # workflow.add_node("risk", self._run_risk_agent)
         # workflow.add_node("execution", self._run_execution_agent)
         
         # Add an end node for final processing
         workflow.add_node("finalize", self._finalize_workflow)
         
         # Define the edges (flow between agents)
-        # In the initial implementation with just one agent, go straight to finalize
-        workflow.add_edge("market_analysis", "finalize")
+        # Market analysis -> Risk assessment -> Finalize
+        workflow.add_edge("market_analysis", "risk_assessment")
+        workflow.add_edge("risk_assessment", "finalize")
         
         # TODO: Update edges as more agents are implemented
         # workflow.add_edge("market_analysis", "sentiment_analysis")
@@ -137,7 +144,7 @@ class TradingAgentOrchestrator:
     
     def _run_market_analysis_agent(self, state: SystemState) -> SystemState:
         """
-        Run the market analysis agent on the current state.
+        Run the market analysis agent with the current state.
         
         Args:
             state (SystemState): Current system state
@@ -145,10 +152,13 @@ class TradingAgentOrchestrator:
         Returns:
             SystemState: Updated system state
         """
-        # Track the current agent
-        state.current_agent = "market_analysis"
+        if self.verbose > 0:
+            print("Running Market Analysis Agent...")
         
-        # Create input for the agent
+        # Get the agent
+        agent = self.agents["market_analysis"]
+        
+        # Prepare input for the agent
         agent_input = AgentInput(
             request=state.request,
             context={
@@ -156,35 +166,91 @@ class TradingAgentOrchestrator:
                 "date_range": {
                     "start_date": state.start_date,
                     "end_date": state.end_date
-                } if state.start_date and state.end_date else None
+                }
             }
         )
         
-        # Get the agent
-        agent = self.agents["market_analysis"]
-        
-        # Process the request
+        # Run the agent
         output = agent.process(agent_input)
         
-        # Store the output
-        state.agent_outputs["market_analysis"] = output.dict()
+        # Store the output in the state
+        state.agent_outputs["market_analysis"] = {
+            "response": output.response,
+            "data": output.data,
+            "confidence": output.confidence
+        }
         
-        # Update state with analysis data
+        # Update the agent name in state
+        state.current_agent = "market_analysis"
+        
+        # Extract and store analysis data
         if output.data:
             state.analysis_data = output.data
-            
-            # Extract symbol if not already set
-            if not state.symbol and "symbol" in output.data:
-                state.symbol = output.data["symbol"]
-                
-            # Extract date range if not already set
-            if (not state.start_date or not state.end_date) and "start_date" in output.data and "end_date" in output.data:
-                state.start_date = output.data["start_date"]
-                state.end_date = output.data["end_date"]
         
-        # Add to history
+        # Save interaction to history
         state.history.append({
             "agent": "market_analysis",
+            "input": agent_input.dict(),
+            "output": output.dict()
+        })
+        
+        return state
+    
+    def _run_risk_assessment_agent(self, state: SystemState) -> SystemState:
+        """
+        Run the risk assessment agent with the current state.
+        
+        Args:
+            state (SystemState): Current system state
+            
+        Returns:
+            SystemState: Updated system state
+        """
+        if self.verbose > 0:
+            print("Running Risk Assessment Agent...")
+        
+        # Get the agent
+        agent = self.agents["risk_assessment"]
+        
+        # Prepare input for the agent
+        context = {
+            "symbol": state.symbol,
+            "date_range": {
+                "start_date": state.start_date,
+                "end_date": state.end_date
+            }
+        }
+        
+        # Add market analysis data to the context if available
+        if state.analysis_data:
+            context["market_analysis"] = state.analysis_data
+        
+        # Create agent input
+        agent_input = AgentInput(
+            request=f"Assess risk for {state.symbol} based on market analysis",
+            context=context
+        )
+        
+        # Run the agent
+        output = agent.process(agent_input)
+        
+        # Store the output in the state
+        state.agent_outputs["risk_assessment"] = {
+            "response": output.response,
+            "data": output.data,
+            "confidence": output.confidence
+        }
+        
+        # Update the agent name in state
+        state.current_agent = "risk_assessment"
+        
+        # Extract and store risk assessment data
+        if output.data:
+            state.risk_assessment = output.data
+        
+        # Save interaction to history
+        state.history.append({
+            "agent": "risk_assessment",
             "input": agent_input.dict(),
             "output": output.dict()
         })
@@ -201,21 +267,29 @@ class TradingAgentOrchestrator:
         Returns:
             SystemState: Final system state with decision and recommendations
         """
-        # Extract market analysis data
+        # Extract agent outputs
         market_analysis = state.agent_outputs.get("market_analysis", {})
-        analysis_response = market_analysis.get("response", "No market analysis available.")
-        confidence = market_analysis.get("confidence", 0.0)
+        risk_assessment = state.agent_outputs.get("risk_assessment", {})
+        
+        # Get confidence values
+        market_confidence = market_analysis.get("confidence", 0.0)
+        risk_confidence = risk_assessment.get("confidence", 0.0)
         
         # In a more complete system, we would combine insights from multiple agents here
-        # For now, just use the market analysis as our final output
         
-        # Generate a simple decision based on market analysis
-        if state.analysis_data:
+        # Generate a decision based on market analysis and risk assessment
+        if state.analysis_data and state.risk_assessment:
+            # Market signals
             percent_change = state.analysis_data.get("percent_change", 0)
             moving_averages = state.analysis_data.get("moving_averages", {})
             indicators = state.analysis_data.get("indicators", {})
             
-            # Simple decision logic based on available data
+            # Risk signals
+            risk_score = state.risk_assessment.get("risk_score", 0.5)
+            risk_rating = state.risk_assessment.get("risk_rating", "Medium")
+            market_condition = state.risk_assessment.get("market_condition", {})
+            
+            # Count signals
             bullish_signals = 0
             bearish_signals = 0
             
@@ -247,40 +321,93 @@ class TradingAgentOrchestrator:
                 bullish_signals += 1
             elif indicators.get("macd_cross_down"):
                 bearish_signals += 1
-            
-            # Make a decision
-            if bullish_signals > bearish_signals:
-                state.decision = "BUY"
-                action_type = "buy"
-                reason = "Bullish technical signals outweigh bearish signals."
-            elif bearish_signals > bullish_signals:
-                state.decision = "SELL"
-                action_type = "sell"
-                reason = "Bearish technical signals outweigh bullish signals."
-            else:
-                state.decision = "HOLD"
-                action_type = "hold"
-                reason = "Technical signals are mixed or neutral."
                 
-            # Generate a recommendation
-            state.recommended_actions = [{
-                "action": action_type,
-                "symbol": state.symbol,
-                "reason": reason,
-                "confidence": confidence
-            }]
+            # Risk adjustment
+            # If risk is high, increase the threshold for buying
+            if risk_rating == "High":
+                buy_threshold = 3  # Need more bullish signals to overcome high risk
+                sell_threshold = 1  # Lower threshold for selling in high risk
+            elif risk_rating == "Medium":
+                buy_threshold = 2
+                sell_threshold = 2
+            else:  # Low risk
+                buy_threshold = 1  # More willing to buy in low risk
+                sell_threshold = 3  # Need more bearish signals to sell in low risk
+                
+            # Make decision
+            if bullish_signals >= buy_threshold and bullish_signals > bearish_signals:
+                decision = "BUY"
+                explanation = f"Bullish signals ({bullish_signals}) exceed the threshold ({buy_threshold}) for {risk_rating} risk."
+            elif bearish_signals >= sell_threshold and bearish_signals > bullish_signals:
+                decision = "SELL"
+                explanation = f"Bearish signals ({bearish_signals}) exceed the threshold ({sell_threshold}) for {risk_rating} risk."
+            else:
+                decision = "HOLD"
+                explanation = f"Not enough clear signals for action at {risk_rating} risk level."
             
-            # Generate an explanation
-            state.explanation = f"Based on the market analysis, the recommendation is to {action_type.upper()} {state.symbol}. {reason}"
+            # Confidence calculation
+            # Base confidence on signal strength and risk level
+            signal_diff = abs(bullish_signals - bearish_signals)
+            signal_confidence = min(0.3 + (signal_diff * 0.1), 0.7)  # 0.3-0.7 based on signal strength
+            
+            # Adjust confidence based on risk (higher risk = lower confidence)
+            risk_adjustment = 1.0 - (risk_score * 0.3)  # 0.7-1.0 based on risk
+            
+            # Combine confidences
+            combined_confidence = signal_confidence * risk_adjustment
+            
+            # Recommended actions based on decision
+            recommended_actions = []
+            
+            if decision == "BUY":
+                position_size = "small" if risk_rating == "High" else "moderate" if risk_rating == "Medium" else "standard"
+                stop_loss = "5-8%" if risk_rating == "High" else "8-12%" if risk_rating == "Medium" else "10-15%"
+                
+                recommended_actions = [
+                    {
+                        "action": "buy",
+                        "symbol": state.symbol,
+                        "position_size": position_size,
+                        "stop_loss": stop_loss,
+                        "reason": explanation
+                    }
+                ]
+            elif decision == "SELL":
+                recommended_actions = [
+                    {
+                        "action": "sell",
+                        "symbol": state.symbol,
+                        "reason": explanation
+                    }
+                ]
+            else:  # HOLD
+                recommended_actions = [
+                    {
+                        "action": "hold",
+                        "symbol": state.symbol,
+                        "reason": explanation
+                    }
+                ]
+            
+            # Update state with decision
+            state.decision = decision
+            state.confidence = combined_confidence
+            state.explanation = explanation
+            state.recommended_actions = recommended_actions
+            
         else:
-            # Default if no analysis data
-            state.decision = "INSUFFICIENT_DATA"
-            state.explanation = "Insufficient data to make a trading decision."
-            state.recommended_actions = []
-            
-        # Set confidence from the market analysis
-        state.confidence = confidence
-            
+            # Default decision if analysis data is missing
+            state.decision = "HOLD"
+            state.confidence = 0.3
+            state.explanation = "Insufficient data for a confident decision."
+            state.recommended_actions = [
+                {
+                    "action": "hold",
+                    "symbol": state.symbol,
+                    "reason": "Insufficient data"
+                }
+            ]
+        
         return state
     
     def _should_execute(self, state: SystemState) -> str:
@@ -325,43 +452,53 @@ class TradingAgentOrchestrator:
             end_date=end_date
         )
         
-        # Run the workflow
         try:
+            # Run the workflow
             if self.verbose > 0:
                 print(f"Processing request: {request}")
-                
+            
             final_state = self.workflow.invoke(initial_state)
             
-            # Format the result
+            # Extract market analysis text from the output
+            market_analysis = final_state.agent_outputs.get("market_analysis", {})
+            analysis_text = market_analysis.get("response", "No market analysis available.")
+            
+            # Extract risk assessment text from the output
+            risk_assessment = final_state.agent_outputs.get("risk_assessment", {})
+            risk_text = risk_assessment.get("response", "No risk assessment available.")
+            
+            # Prepare the result
             result = {
                 "request": request,
                 "symbol": final_state.symbol,
                 "date_range": {
                     "start_date": final_state.start_date,
                     "end_date": final_state.end_date
-                },
+                } if final_state.start_date and final_state.end_date else None,
                 "decision": final_state.decision,
                 "confidence": final_state.confidence,
                 "explanation": final_state.explanation,
-                "recommended_actions": final_state.recommended_actions,
-                "analysis": final_state.agent_outputs.get("market_analysis", {}).get("response", "")
+                "recommended_actions": final_state.recommended_actions if final_state.recommended_actions else [],
+                "analysis": analysis_text,
+                "risk_assessment": risk_text
             }
             
-            return result
+            # Include additional data if available
+            if final_state.analysis_data:
+                result["analysis_data"] = final_state.analysis_data
             
+            if final_state.risk_assessment:
+                result["risk_data"] = final_state.risk_assessment
+            
+            return result
         except Exception as e:
+            # Handle any errors
             if self.verbose > 0:
                 print(f"Error processing request: {e}")
             
-            # Return error information
             return {
                 "request": request,
-                "error": str(e),
-                "symbol": symbol,
-                "date_range": {
-                    "start_date": start_date,
-                    "end_date": end_date
-                }
+                "error": f"Error in trading agent system: {str(e)}"
             }
     
     def get_available_agents(self) -> List[str]:
