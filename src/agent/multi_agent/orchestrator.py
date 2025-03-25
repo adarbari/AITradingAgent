@@ -14,9 +14,9 @@ from .base_agent import BaseAgent, AgentInput, AgentOutput
 from .market_analysis_agent import MarketAnalysisAgent
 from .risk_assessment_agent import RiskAssessmentAgent
 from .portfolio_management_agent import PortfolioManagementAgent
-from .execution_agent import ExecutionAgent
 from .sentiment_analysis_agent import SentimentAnalysisAgent
 from src.data import DataManager
+from .advanced_execution_agent import AdvancedExecutionAgent
 
 class SystemState(BaseModel):
     """
@@ -83,42 +83,44 @@ class TradingAgentOrchestrator:
         self.workflow = self._build_workflow()
     
     def _initialize_agents(self) -> Dict[str, BaseAgent]:
-        """Initialize all agents in the system"""
+        """
+        Initialize all agents used in the system.
+        
+        Returns:
+            Dict[str, BaseAgent]: Dictionary of agent name to agent object
+        """
         agents = {}
         
-        # Market Analysis Agent
+        # Initialize market analysis agent
         agents["market_analysis"] = MarketAnalysisAgent(
             data_manager=self.data_manager,
-            openai_api_key=self.openai_api_key,
             verbose=self.verbose
         )
         
-        # Sentiment Analysis Agent
-        agents["sentiment_analysis"] = SentimentAnalysisAgent(
-            data_manager=self.data_manager,
-            verbose=self.verbose
-        )
-        
-        # Risk Assessment Agent
+        # Initialize risk assessment agent
         agents["risk_assessment"] = RiskAssessmentAgent(
             data_manager=self.data_manager,
             verbose=self.verbose
         )
         
-        # Portfolio Management Agent
+        # Initialize portfolio management agent
         agents["portfolio_management"] = PortfolioManagementAgent(
             data_manager=self.data_manager,
             verbose=self.verbose
         )
         
-        # Execution Agent
-        agents["execution"] = ExecutionAgent(
+        # Initialize sentiment analysis agent
+        agents["sentiment_analysis"] = SentimentAnalysisAgent(
             data_manager=self.data_manager,
             verbose=self.verbose
         )
         
-        # TODO: Add more agents as they are implemented
-        # agents["strategy"] = StrategyAgent(...)
+        # Initialize execution agent
+        # Use the advanced execution agent instead of the basic one
+        agents["execution"] = AdvancedExecutionAgent(
+            data_manager=self.data_manager,
+            verbose=self.verbose
+        )
         
         return agents
     

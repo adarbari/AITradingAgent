@@ -131,7 +131,7 @@ class TestAMZNTrainBacktest:
         try:
             # Run training command
             train_cmd = [
-                "python", "src/scripts/train_and_backtest.py",
+                "python", "../src/scripts/train_and_backtest.py",
                 "--symbol", symbol,
                 "--train",
                 "--train-start", train_start,

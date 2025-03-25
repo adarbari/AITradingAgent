@@ -227,7 +227,6 @@ class TestTradingAgentOrchestrator:
         # Verify the agents were created correctly
         mock_market_agent_class.assert_called_once_with(
             data_manager=mock_data_manager,
-            openai_api_key=None,
             verbose=0
         )
         
