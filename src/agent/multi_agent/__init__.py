@@ -5,6 +5,7 @@ from .base_agent import BaseAgent, AgentInput, AgentOutput
 from .market_analysis_agent import MarketAnalysisAgent
 from .risk_assessment_agent import RiskAssessmentAgent
 from .portfolio_management_agent import PortfolioManagementAgent
+from .execution_agent import ExecutionAgent
 from .orchestrator import TradingAgentOrchestrator, SystemState
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     'MarketAnalysisAgent',
     'RiskAssessmentAgent',
     'PortfolioManagementAgent',
+    'ExecutionAgent',
     'TradingAgentOrchestrator',
     'SystemState'
 ] 

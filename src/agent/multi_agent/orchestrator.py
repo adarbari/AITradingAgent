@@ -14,6 +14,7 @@ from .base_agent import BaseAgent, AgentInput, AgentOutput
 from .market_analysis_agent import MarketAnalysisAgent
 from .risk_assessment_agent import RiskAssessmentAgent
 from .portfolio_management_agent import PortfolioManagementAgent
+from .execution_agent import ExecutionAgent
 from src.data import DataManager
 
 class SystemState(BaseModel):
@@ -37,10 +38,15 @@ class SystemState(BaseModel):
     sentiment_data: Optional[Dict[str, Any]] = Field(None, description="Sentiment analysis data")
     risk_assessment: Optional[Dict[str, Any]] = Field(None, description="Risk assessment data")
     portfolio_recommendations: Optional[Dict[str, Any]] = Field(None, description="Portfolio recommendations data")
+    execution_plan: Optional[Dict[str, Any]] = Field(None, description="Execution plan data")
     
     # Portfolio data
     portfolio: Optional[Dict[str, Any]] = Field(None, description="User portfolio data")
     risk_tolerance: Optional[str] = Field(None, description="User risk tolerance level")
+    
+    # Trade execution data
+    trade_details: Optional[Dict[str, Any]] = Field(None, description="Details for trade execution")
+    execution_urgency: Optional[str] = Field(None, description="Execution urgency level (high/normal/low)")
     
     # Final output
     decision: Optional[str] = Field(None, description="Final trading decision")
@@ -98,10 +104,15 @@ class TradingAgentOrchestrator:
             verbose=self.verbose
         )
         
+        # Execution Agent
+        agents["execution"] = ExecutionAgent(
+            data_manager=self.data_manager,
+            verbose=self.verbose
+        )
+        
         # TODO: Add more agents as they are implemented
         # agents["sentiment_analysis"] = SentimentAnalysisAgent(...)
         # agents["strategy"] = StrategyAgent(...)
-        # agents["execution"] = ExecutionAgent(...)
         
         return agents
     
@@ -119,34 +130,34 @@ class TradingAgentOrchestrator:
         workflow.add_node("market_analysis", self._run_market_analysis_agent)
         workflow.add_node("risk_assessment", self._run_risk_assessment_agent)
         workflow.add_node("portfolio_management", self._run_portfolio_management_agent)
+        workflow.add_node("execution", self._run_execution_agent)
         
         # TODO: Add more nodes as more agents are implemented
         # workflow.add_node("sentiment_analysis", self._run_sentiment_analysis_agent)
         # workflow.add_node("strategy", self._run_strategy_agent)
-        # workflow.add_node("execution", self._run_execution_agent)
         
         # Add an end node for final processing
         workflow.add_node("finalize", self._finalize_workflow)
         
-        # Define the edges (flow between agents)
-        # Market analysis -> Risk assessment -> Portfolio Management -> Finalize
+        # Define conditional edges to determine if execution is needed
+        workflow.add_conditional_edges(
+            "portfolio_management",
+            self._should_execute,
+            {
+                "execute": "execution",
+                "skip": "finalize"
+            }
+        )
+        
+        # Define the rest of the edges (flow between agents)
         workflow.add_edge("market_analysis", "risk_assessment")
         workflow.add_edge("risk_assessment", "portfolio_management")
-        workflow.add_edge("portfolio_management", "finalize")
+        workflow.add_edge("execution", "finalize")
         
         # TODO: Update edges as more agents are implemented
         # workflow.add_edge("market_analysis", "sentiment_analysis")
         # workflow.add_edge("sentiment_analysis", "strategy")
         # workflow.add_edge("strategy", "risk")
-        # workflow.add_conditional_edges(
-        #     "risk",
-        #     self._should_execute,
-        #     {
-        #         "execute": "execution",
-        #         "abort": "finalize"
-        #     }
-        # )
-        # workflow.add_edge("execution", "finalize")
         
         # Set the entry point
         workflow.set_entry_point("market_analysis")
@@ -336,6 +347,27 @@ class TradingAgentOrchestrator:
         # Extract and store portfolio recommendations
         if output.data:
             state.portfolio_recommendations = output.data
+            
+            # Prepare trade details for execution agent if recommendations exist
+            if "recommendations" in output.data and output.data["recommendations"]:
+                recommendations = output.data["recommendations"]
+                for rec in recommendations:
+                    if "action" in rec and "symbol" in rec and rec["action"] in ["buy", "sell"]:
+                        # Create trade details for the first actionable recommendation
+                        state.trade_details = {
+                            "symbol": rec["symbol"],
+                            "action": rec["action"],
+                            "quantity": rec.get("shares", 0),
+                            "price": rec.get("price", 0.0)  # Price might not be available
+                        }
+                        # Set execution urgency based on risk tolerance
+                        if state.risk_tolerance == "aggressive":
+                            state.execution_urgency = "high"
+                        elif state.risk_tolerance == "conservative":
+                            state.execution_urgency = "low"
+                        else:
+                            state.execution_urgency = "normal"
+                        break
         
         # Save interaction to history
         state.history.append({
@@ -345,6 +377,111 @@ class TradingAgentOrchestrator:
         })
         
         return state
+    
+    def _run_execution_agent(self, state: SystemState) -> SystemState:
+        """
+        Run the execution agent with the current state.
+        
+        Args:
+            state (SystemState): Current system state
+            
+        Returns:
+            SystemState: Updated system state
+        """
+        if self.verbose > 0:
+            print("Running Execution Agent...")
+        
+        # Skip execution if no trade details are available
+        if not state.trade_details:
+            if self.verbose > 0:
+                print("Skipping Execution Agent - no trade details available")
+            return state
+        
+        # Get the agent
+        agent = self.agents["execution"]
+        
+        # Add urgency to trade details if available
+        trade_details = state.trade_details.copy()
+        if state.execution_urgency:
+            trade_details["urgency"] = state.execution_urgency
+        
+        # Prepare context for the agent
+        context = {
+            "trade_details": trade_details
+        }
+        
+        # Add market analysis and risk assessment data to the context
+        if state.analysis_data:
+            context["market_analysis"] = state.analysis_data
+        
+        if state.risk_assessment:
+            context["risk_assessment"] = state.risk_assessment
+            
+        # Add portfolio data to the context if available
+        if state.portfolio:
+            context["portfolio"] = state.portfolio
+        
+        # Create agent input with request
+        symbol = trade_details.get("symbol", "")
+        action = trade_details.get("action", "").upper()
+        quantity = trade_details.get("quantity", 0)
+        
+        request = f"Execute {action} order for {quantity} shares of {symbol}"
+        
+        agent_input = AgentInput(
+            request=request,
+            context=context
+        )
+        
+        # Run the agent
+        output = agent.process(agent_input)
+        
+        # Store the output in the state
+        state.agent_outputs["execution"] = {
+            "response": output.response,
+            "data": output.data,
+            "confidence": output.confidence
+        }
+        
+        # Update the agent name in state
+        state.current_agent = "execution"
+        
+        # Extract and store execution plan
+        if output.data:
+            state.execution_plan = output.data
+        
+        # Save interaction to history
+        state.history.append({
+            "agent": "execution",
+            "input": agent_input.dict(),
+            "output": output.dict()
+        })
+        
+        return state
+    
+    def _should_execute(self, state: SystemState) -> str:
+        """
+        Determine whether to proceed with execution or skip based on portfolio recommendations.
+        
+        Args:
+            state (SystemState): Current system state
+            
+        Returns:
+            str: Next node - 'execute' or 'skip'
+        """
+        # Check if we have trade details from portfolio recommendations
+        if state.trade_details and state.trade_details.get("quantity", 0) > 0:
+            # Check if the request explicitly mentions execution
+            execution_keywords = ['execute', 'execution', 'place order', 'trade', 'buy', 'sell']
+            if any(keyword in state.request.lower() for keyword in execution_keywords):
+                return "execute"
+                
+            # Check if there's a definitive trade recommendation
+            if state.decision in ["BUY", "SELL"] and state.confidence and state.confidence > 0.6:
+                return "execute"
+        
+        # If not explicitly about execution or no clear trade details, skip execution
+        return "skip"
     
     def _finalize_workflow(self, state: SystemState) -> SystemState:
         """
@@ -360,11 +497,13 @@ class TradingAgentOrchestrator:
         market_analysis = state.agent_outputs.get("market_analysis", {})
         risk_assessment = state.agent_outputs.get("risk_assessment", {})
         portfolio_management = state.agent_outputs.get("portfolio_management", {})
+        execution = state.agent_outputs.get("execution", {})
         
         # Get confidence values
         market_confidence = market_analysis.get("confidence", 0.0)
         risk_confidence = risk_assessment.get("confidence", 0.0)
         portfolio_confidence = portfolio_management.get("confidence", 0.0) if portfolio_management else 0.0
+        execution_confidence = execution.get("confidence", 0.0) if execution else 0.0
         
         # In a more complete system, we would combine insights from multiple agents here
         
@@ -542,32 +681,28 @@ class TradingAgentOrchestrator:
                 }
             ]
         
-        return state
-    
-    def _should_execute(self, state: SystemState) -> str:
-        """
-        Determine whether to proceed with execution or abort based on risk assessment.
+        # If we have execution data, enhance the recommendations with execution details
+        if state.execution_plan:
+            # Add execution details to the recommended actions
+            for action in state.recommended_actions:
+                if action.get("symbol") == state.execution_plan.get("symbol") and action.get("action") == state.execution_plan.get("action"):
+                    action["execution"] = {
+                        "order_type": state.execution_plan.get("order_type"),
+                        "execution_strategy": state.execution_plan.get("execution_strategy"),
+                        "estimated_costs": state.execution_plan.get("estimated_costs"),
+                        "market_impact": state.execution_plan.get("market_impact")
+                    }
+                    # Add order parameters if available
+                    if "order_params" in state.execution_plan:
+                        action["execution"]["parameters"] = state.execution_plan["order_params"]
         
-        Args:
-            state (SystemState): Current system state
-            
-        Returns:
-            str: Next node - 'execute' or 'abort'
-        """
-        # This would include more sophisticated logic in a complete implementation
-        # For now, it's a placeholder
-        if state.risk_assessment and "risk_score" in state.risk_assessment:
-            risk_score = state.risk_assessment["risk_score"]
-            if risk_score <= 0.7:  # Threshold for acceptable risk
-                return "execute"
-            else:
-                return "abort"
-        return "abort"  # Default to abort if no risk assessment
+        return state
     
     def process_request(self, request: str, symbol: Optional[str] = None, 
                        start_date: Optional[str] = None, end_date: Optional[str] = None,
                        portfolio: Optional[Dict[str, Any]] = None, 
-                       risk_tolerance: Optional[str] = None) -> Dict[str, Any]:
+                       risk_tolerance: Optional[str] = None,
+                       execution_urgency: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a trading analysis request through the multi-agent system.
         
@@ -578,6 +713,7 @@ class TradingAgentOrchestrator:
             end_date (str, optional): End date for analysis (YYYY-MM-DD)
             portfolio (Dict[str, Any], optional): User's portfolio data
             risk_tolerance (str, optional): User's risk tolerance level
+            execution_urgency (str, optional): Urgency level for trade execution (high/normal/low)
             
         Returns:
             Dict[str, Any]: Results from the multi-agent analysis
@@ -589,7 +725,8 @@ class TradingAgentOrchestrator:
             start_date=start_date,
             end_date=end_date,
             portfolio=portfolio,
-            risk_tolerance=risk_tolerance
+            risk_tolerance=risk_tolerance,
+            execution_urgency=execution_urgency
         )
         
         try:
@@ -599,17 +736,18 @@ class TradingAgentOrchestrator:
             
             final_state = self.workflow.invoke(initial_state)
             
-            # Extract market analysis text from the output
+            # Extract agent response texts
             market_analysis = final_state.agent_outputs.get("market_analysis", {})
             analysis_text = market_analysis.get("response", "No market analysis available.")
             
-            # Extract risk assessment text from the output
             risk_assessment = final_state.agent_outputs.get("risk_assessment", {})
             risk_text = risk_assessment.get("response", "No risk assessment available.")
             
-            # Extract portfolio management text from the output
             portfolio_management = final_state.agent_outputs.get("portfolio_management", {})
             portfolio_text = portfolio_management.get("response", "No portfolio recommendations available.")
+            
+            execution = final_state.agent_outputs.get("execution", {})
+            execution_text = execution.get("response", "No execution details available.")
             
             # Prepare the result
             result = {
@@ -625,7 +763,8 @@ class TradingAgentOrchestrator:
                 "recommended_actions": final_state.recommended_actions if final_state.recommended_actions else [],
                 "analysis": analysis_text,
                 "risk_assessment": risk_text,
-                "portfolio_management": portfolio_text if final_state.portfolio else None
+                "portfolio_management": portfolio_text if final_state.portfolio else None,
+                "execution": execution_text if final_state.execution_plan else None
             }
             
             # Include additional data if available
@@ -637,6 +776,9 @@ class TradingAgentOrchestrator:
                 
             if final_state.portfolio_recommendations:
                 result["portfolio_data"] = final_state.portfolio_recommendations
+                
+            if final_state.execution_plan:
+                result["execution_data"] = final_state.execution_plan
             
             return result
         except Exception as e:
