@@ -13,6 +13,7 @@ from langgraph.graph import StateGraph, END
 from .base_agent import BaseAgent, AgentInput, AgentOutput
 from .market_analysis_agent import MarketAnalysisAgent
 from .risk_assessment_agent import RiskAssessmentAgent
+from .portfolio_management_agent import PortfolioManagementAgent
 from src.data import DataManager
 
 class SystemState(BaseModel):
@@ -35,6 +36,11 @@ class SystemState(BaseModel):
     analysis_data: Optional[Dict[str, Any]] = Field(None, description="Market analysis data")
     sentiment_data: Optional[Dict[str, Any]] = Field(None, description="Sentiment analysis data")
     risk_assessment: Optional[Dict[str, Any]] = Field(None, description="Risk assessment data")
+    portfolio_recommendations: Optional[Dict[str, Any]] = Field(None, description="Portfolio recommendations data")
+    
+    # Portfolio data
+    portfolio: Optional[Dict[str, Any]] = Field(None, description="User portfolio data")
+    risk_tolerance: Optional[str] = Field(None, description="User risk tolerance level")
     
     # Final output
     decision: Optional[str] = Field(None, description="Final trading decision")
@@ -86,6 +92,12 @@ class TradingAgentOrchestrator:
             verbose=self.verbose
         )
         
+        # Portfolio Management Agent
+        agents["portfolio_management"] = PortfolioManagementAgent(
+            data_manager=self.data_manager,
+            verbose=self.verbose
+        )
+        
         # TODO: Add more agents as they are implemented
         # agents["sentiment_analysis"] = SentimentAnalysisAgent(...)
         # agents["strategy"] = StrategyAgent(...)
@@ -106,6 +118,7 @@ class TradingAgentOrchestrator:
         # Add nodes for each agent
         workflow.add_node("market_analysis", self._run_market_analysis_agent)
         workflow.add_node("risk_assessment", self._run_risk_assessment_agent)
+        workflow.add_node("portfolio_management", self._run_portfolio_management_agent)
         
         # TODO: Add more nodes as more agents are implemented
         # workflow.add_node("sentiment_analysis", self._run_sentiment_analysis_agent)
@@ -116,9 +129,10 @@ class TradingAgentOrchestrator:
         workflow.add_node("finalize", self._finalize_workflow)
         
         # Define the edges (flow between agents)
-        # Market analysis -> Risk assessment -> Finalize
+        # Market analysis -> Risk assessment -> Portfolio Management -> Finalize
         workflow.add_edge("market_analysis", "risk_assessment")
-        workflow.add_edge("risk_assessment", "finalize")
+        workflow.add_edge("risk_assessment", "portfolio_management")
+        workflow.add_edge("portfolio_management", "finalize")
         
         # TODO: Update edges as more agents are implemented
         # workflow.add_edge("market_analysis", "sentiment_analysis")
@@ -225,6 +239,10 @@ class TradingAgentOrchestrator:
         if state.analysis_data:
             context["market_analysis"] = state.analysis_data
         
+        # Add portfolio data to the context if available
+        if state.portfolio:
+            context["portfolio"] = state.portfolio
+        
         # Create agent input
         agent_input = AgentInput(
             request=f"Assess risk for {state.symbol} based on market analysis",
@@ -257,6 +275,77 @@ class TradingAgentOrchestrator:
         
         return state
     
+    def _run_portfolio_management_agent(self, state: SystemState) -> SystemState:
+        """
+        Run the portfolio management agent with the current state.
+        
+        Args:
+            state (SystemState): Current system state
+            
+        Returns:
+            SystemState: Updated system state
+        """
+        if self.verbose > 0:
+            print("Running Portfolio Management Agent...")
+        
+        # Skip portfolio management if no portfolio data is available
+        if not state.portfolio:
+            if self.verbose > 0:
+                print("Skipping Portfolio Management Agent - no portfolio data available")
+            return state
+        
+        # Get the agent
+        agent = self.agents["portfolio_management"]
+        
+        # Prepare context for the agent
+        context = {
+            "portfolio": state.portfolio,
+            "risk_tolerance": state.risk_tolerance
+        }
+        
+        # Add market analysis and risk assessment data to the context
+        if state.analysis_data:
+            context["market_analysis"] = state.analysis_data
+        
+        if state.risk_assessment:
+            context["risk_assessment"] = state.risk_assessment
+        
+        # Create agent input with request based on risk tolerance if available
+        request = "Optimize portfolio allocations"
+        if state.risk_tolerance:
+            request += f" with {state.risk_tolerance} risk profile"
+        
+        agent_input = AgentInput(
+            request=request,
+            context=context
+        )
+        
+        # Run the agent
+        output = agent.process(agent_input)
+        
+        # Store the output in the state
+        state.agent_outputs["portfolio_management"] = {
+            "response": output.response,
+            "data": output.data,
+            "confidence": output.confidence
+        }
+        
+        # Update the agent name in state
+        state.current_agent = "portfolio_management"
+        
+        # Extract and store portfolio recommendations
+        if output.data:
+            state.portfolio_recommendations = output.data
+        
+        # Save interaction to history
+        state.history.append({
+            "agent": "portfolio_management",
+            "input": agent_input.dict(),
+            "output": output.dict()
+        })
+        
+        return state
+    
     def _finalize_workflow(self, state: SystemState) -> SystemState:
         """
         Finalize the workflow and generate the final output.
@@ -270,10 +359,12 @@ class TradingAgentOrchestrator:
         # Extract agent outputs
         market_analysis = state.agent_outputs.get("market_analysis", {})
         risk_assessment = state.agent_outputs.get("risk_assessment", {})
+        portfolio_management = state.agent_outputs.get("portfolio_management", {})
         
         # Get confidence values
         market_confidence = market_analysis.get("confidence", 0.0)
         risk_confidence = risk_assessment.get("confidence", 0.0)
+        portfolio_confidence = portfolio_management.get("confidence", 0.0) if portfolio_management else 0.0
         
         # In a more complete system, we would combine insights from multiple agents here
         
@@ -356,38 +447,81 @@ class TradingAgentOrchestrator:
             # Combine confidences
             combined_confidence = signal_confidence * risk_adjustment
             
-            # Recommended actions based on decision
+            # Initialize recommended actions
             recommended_actions = []
             
-            if decision == "BUY":
+            # Check if we have portfolio recommendations
+            if state.portfolio_recommendations and state.portfolio:
+                # Use portfolio recommendations if available
+                portfolio_recommendations = state.portfolio_recommendations.get("recommendations", [])
+                if portfolio_recommendations:
+                    # Enhanced recommendations with position sizing from portfolio management
+                    recommended_actions = portfolio_recommendations
+                    # Add explanation from market analysis/risk assessment
+                    for action in recommended_actions:
+                        action["market_reason"] = explanation
+                else:
+                    # Fall back to basic recommendations if no specific trades recommended
+                    position_size = "small" if risk_rating == "High" else "moderate" if risk_rating == "Medium" else "standard"
+                    stop_loss = "5-8%" if risk_rating == "High" else "8-12%" if risk_rating == "Medium" else "10-15%"
+                    
+                    if decision == "BUY":
+                        recommended_actions = [
+                            {
+                                "action": "buy",
+                                "symbol": state.symbol,
+                                "position_size": position_size,
+                                "stop_loss": stop_loss,
+                                "reason": explanation
+                            }
+                        ]
+                    elif decision == "SELL":
+                        recommended_actions = [
+                            {
+                                "action": "sell",
+                                "symbol": state.symbol,
+                                "reason": explanation
+                            }
+                        ]
+                    else:  # HOLD
+                        recommended_actions = [
+                            {
+                                "action": "hold",
+                                "symbol": state.symbol,
+                                "reason": explanation
+                            }
+                        ]
+            else:
+                # Basic recommendations without portfolio data
                 position_size = "small" if risk_rating == "High" else "moderate" if risk_rating == "Medium" else "standard"
                 stop_loss = "5-8%" if risk_rating == "High" else "8-12%" if risk_rating == "Medium" else "10-15%"
                 
-                recommended_actions = [
-                    {
-                        "action": "buy",
-                        "symbol": state.symbol,
-                        "position_size": position_size,
-                        "stop_loss": stop_loss,
-                        "reason": explanation
-                    }
-                ]
-            elif decision == "SELL":
-                recommended_actions = [
-                    {
-                        "action": "sell",
-                        "symbol": state.symbol,
-                        "reason": explanation
-                    }
-                ]
-            else:  # HOLD
-                recommended_actions = [
-                    {
-                        "action": "hold",
-                        "symbol": state.symbol,
-                        "reason": explanation
-                    }
-                ]
+                if decision == "BUY":
+                    recommended_actions = [
+                        {
+                            "action": "buy",
+                            "symbol": state.symbol,
+                            "position_size": position_size,
+                            "stop_loss": stop_loss,
+                            "reason": explanation
+                        }
+                    ]
+                elif decision == "SELL":
+                    recommended_actions = [
+                        {
+                            "action": "sell",
+                            "symbol": state.symbol,
+                            "reason": explanation
+                        }
+                    ]
+                else:  # HOLD
+                    recommended_actions = [
+                        {
+                            "action": "hold",
+                            "symbol": state.symbol,
+                            "reason": explanation
+                        }
+                    ]
             
             # Update state with decision
             state.decision = decision
@@ -431,7 +565,9 @@ class TradingAgentOrchestrator:
         return "abort"  # Default to abort if no risk assessment
     
     def process_request(self, request: str, symbol: Optional[str] = None, 
-                       start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
+                       start_date: Optional[str] = None, end_date: Optional[str] = None,
+                       portfolio: Optional[Dict[str, Any]] = None, 
+                       risk_tolerance: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a trading analysis request through the multi-agent system.
         
@@ -440,6 +576,8 @@ class TradingAgentOrchestrator:
             symbol (str, optional): Stock symbol to analyze
             start_date (str, optional): Start date for analysis (YYYY-MM-DD)
             end_date (str, optional): End date for analysis (YYYY-MM-DD)
+            portfolio (Dict[str, Any], optional): User's portfolio data
+            risk_tolerance (str, optional): User's risk tolerance level
             
         Returns:
             Dict[str, Any]: Results from the multi-agent analysis
@@ -449,7 +587,9 @@ class TradingAgentOrchestrator:
             request=request,
             symbol=symbol,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            portfolio=portfolio,
+            risk_tolerance=risk_tolerance
         )
         
         try:
@@ -467,6 +607,10 @@ class TradingAgentOrchestrator:
             risk_assessment = final_state.agent_outputs.get("risk_assessment", {})
             risk_text = risk_assessment.get("response", "No risk assessment available.")
             
+            # Extract portfolio management text from the output
+            portfolio_management = final_state.agent_outputs.get("portfolio_management", {})
+            portfolio_text = portfolio_management.get("response", "No portfolio recommendations available.")
+            
             # Prepare the result
             result = {
                 "request": request,
@@ -480,7 +624,8 @@ class TradingAgentOrchestrator:
                 "explanation": final_state.explanation,
                 "recommended_actions": final_state.recommended_actions if final_state.recommended_actions else [],
                 "analysis": analysis_text,
-                "risk_assessment": risk_text
+                "risk_assessment": risk_text,
+                "portfolio_management": portfolio_text if final_state.portfolio else None
             }
             
             # Include additional data if available
@@ -489,6 +634,9 @@ class TradingAgentOrchestrator:
             
             if final_state.risk_assessment:
                 result["risk_data"] = final_state.risk_assessment
+                
+            if final_state.portfolio_recommendations:
+                result["portfolio_data"] = final_state.portfolio_recommendations
             
             return result
         except Exception as e:
