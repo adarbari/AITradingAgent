@@ -1,17 +1,31 @@
 """
-The agent module contains trading environment implementations
-for reinforcement learning agents.
+Trading agent implementations.
 """
+from .trading_env import TradingEnvironment, LegacyTradingEnvironment
+from .base_trading_env import BaseTradingEnvironment
+from .trading_agent import DQNTradingAgent, PPOTradingAgent
 
-from src.agent.base_trading_env import BaseTradingEnvironment
-from src.agent.trading_env import TradingEnvironment, LegacyTradingEnvironment
-
-# For backward compatibility
-SafeTradingEnvironment = TradingEnvironment
+# Import and expose the multi-agent system
+from .multi_agent import (
+    BaseAgent, 
+    AgentInput, 
+    AgentOutput, 
+    MarketAnalysisAgent, 
+    TradingAgentOrchestrator, 
+    SystemState
+)
 
 __all__ = [
+    'TradingEnvironment',
+    'LegacyTradingEnvironment',
     'BaseTradingEnvironment',
-    'LegacyTradingEnvironment',  # Deprecated, use TradingEnvironment instead
-    'TradingEnvironment',        # Recommended implementation with improved safety
-    'SafeTradingEnvironment',    # For backward compatibility
+    'DQNTradingAgent',
+    'PPOTradingAgent',
+    # Multi-agent system
+    'BaseAgent',
+    'AgentInput',
+    'AgentOutput',
+    'MarketAnalysisAgent',
+    'TradingAgentOrchestrator',
+    'SystemState'
 ] 

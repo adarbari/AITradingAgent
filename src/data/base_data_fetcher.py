@@ -6,15 +6,98 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 class BaseDataFetcher(ABC):
-    """Abstract base class for data fetching strategies"""
+    """
+    Abstract base class for data fetching strategies.
+    
+    This class defines the interface for all data fetchers in the system.
+    Each concrete implementation should handle a specific data source.
+    """
     
     @abstractmethod
     def fetch_data(self, symbol, start_date, end_date):
-        """Fetch data for a given symbol and date range"""
+        """
+        Fetch price data for a given symbol and date range.
+        
+        Args:
+            symbol (str): Stock symbol
+            start_date (str): Start date in 'YYYY-MM-DD' format
+            end_date (str): End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            pd.DataFrame: DataFrame with stock data (OHLCV)
+        """
         pass
     
+    def fetch_sentiment_data(self, symbol, start_date, end_date):
+        """
+        Fetch sentiment data for a given symbol and date range.
+        
+        Args:
+            symbol (str): Stock symbol
+            start_date (str): Start date in 'YYYY-MM-DD' format
+            end_date (str): End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            pd.DataFrame: DataFrame with sentiment data
+            None: If not implemented or no data available
+        """
+        return None  # Default implementation returns None
+    
+    def fetch_economic_data(self, indicators, start_date, end_date):
+        """
+        Fetch economic indicators for a given date range.
+        
+        Args:
+            indicators (list): List of economic indicator names
+            start_date (str): Start date in 'YYYY-MM-DD' format
+            end_date (str): End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            pd.DataFrame: DataFrame with economic data
+            None: If not implemented or no data available
+        """
+        return None  # Default implementation returns None
+    
+    def fetch_correlation_data(self, symbols, start_date, end_date):
+        """
+        Fetch correlation data between multiple symbols.
+        
+        Args:
+            symbols (list): List of stock symbols
+            start_date (str): Start date in 'YYYY-MM-DD' format
+            end_date (str): End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            pd.DataFrame: DataFrame with correlation matrix
+            None: If not implemented or no data available
+        """
+        return None  # Default implementation returns None
+    
+    def fetch_social_sentiment(self, symbol, start_date, end_date):
+        """
+        Fetch social media sentiment data for a given symbol.
+        
+        Args:
+            symbol (str): Stock symbol
+            start_date (str): Start date in 'YYYY-MM-DD' format
+            end_date (str): End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            pd.DataFrame: DataFrame with social sentiment data
+            None: If not implemented or no data available
+        """
+        return None  # Default implementation returns None
+
     def add_technical_indicators(self, df):
-        """Add technical indicators to the dataframe"""
+        """
+        Add technical indicators to the dataframe.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLCV data
+            
+        Returns:
+            pd.DataFrame: DataFrame with added technical indicators
+        """
         # Add Simple Moving Averages
         df['SMA_5'] = df['Close'].rolling(window=5).mean()
         df['SMA_10'] = df['Close'].rolling(window=10).mean()
@@ -88,7 +171,16 @@ class BaseDataFetcher(ABC):
         return df
     
     def prepare_data_for_agent(self, df, window_size=20):
-        """Prepare data for the trading agent"""
+        """
+        Prepare data for the trading agent.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLCV and indicator data
+            window_size (int): Size of the rolling window
+            
+        Returns:
+            np.ndarray: Array of normalized feature windows
+        """
         # Normalize features using min-max scaling
         features = ['Open', 'High', 'Low', 'Close', 'Volume', 
                     'SMA_5', 'SMA_10', 'SMA_20',
