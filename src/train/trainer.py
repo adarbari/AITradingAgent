@@ -194,6 +194,16 @@ class TrainingManager:
         if self.verbose > 0:
             print(f"Prepared {len(features)} data points with {features.shape[1]} features.")
         
+        # Ensure prices and features have the same length
+        if len(prices) != len(features):
+            if self.verbose > 0:
+                print(f"Warning: Length mismatch between prices ({len(prices)}) and features ({len(features)})")
+            min_length = min(len(prices), len(features))
+            prices = prices[:min_length]
+            features = features[:min_length]
+            if self.verbose > 0:
+                print(f"Trimmed both arrays to length {min_length}")
+        
         # Train the model
         if self.verbose > 0:
             print(f"Training model with {timesteps} timesteps...")

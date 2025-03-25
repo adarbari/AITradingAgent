@@ -200,9 +200,39 @@ def backtest_model(model_path, symbol, test_start, test_end, data_source='yahoo'
     
     print(f"Prepared {len(features)} data points with {len(features.columns)} features for testing")
     
+    # Get price data
+    prices = test_data['Close'].values
+    
+    # Ensure prices and features have the same length
+    if len(prices) != len(features):
+        print(f"WARNING: Length mismatch between prices ({len(prices)}) and features ({len(features)})")
+        print(f"This could be due to NaN values in the data or different date indexes")
+        
+        # Print first and last few dates to help diagnose
+        if isinstance(test_data.index, pd.DatetimeIndex):
+            print(f"Price data first dates: {test_data.index[:3]}")
+            print(f"Price data last dates: {test_data.index[-3:]}")
+        
+        if isinstance(features, pd.DataFrame) and isinstance(features.index, pd.DatetimeIndex):
+            print(f"Feature data first dates: {features.index[:3]}")
+            print(f"Feature data last dates: {features.index[-3:]}")
+        
+        # Check for NaN values
+        if isinstance(features, pd.DataFrame):
+            nan_count = features.isna().sum().sum()
+            print(f"Feature data contains {nan_count} NaN values")
+        
+        min_length = min(len(prices), len(features))
+        prices = prices[:min_length]
+        if isinstance(features, pd.DataFrame):
+            features = features.iloc[:min_length]
+        else:
+            features = features[:min_length]
+        print(f"Trimmed both arrays to length {min_length}")
+    
     # Create and run the trading environment
     env = TradingEnvironment(
-        prices=test_data['Close'].values,
+        prices=prices,
         features=features,
         initial_balance=10000,
         transaction_fee_percent=0.001
